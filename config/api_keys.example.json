@@ -1,0 +1,22 @@
+{
+    "llm_provider": "ollama",
+    "ollama_base_url": "http://localhost:11434",
+    "ollama_model": "llama3.2:latest",
+    "gemini_api_key": "",
+    "os_system": "mac",
+    "voice_input_mode": "always_on",
+    "whisper_model": "tiny.en",
+    "listen_cooldown_sec": 1.2,
+    "tts_voice": "en-US-AndrewMultilingualNeural",
+    "tts_rate": "-2%",
+    "tts_pitch": "+0Hz",
+    "tts_volume": "+0%",
+    "ollama_options": {
+        "temperature": 0.45,
+        "num_predict": 55,
+        "num_predict_tools": 100,
+        "num_ctx": 1536,
+        "top_p": 0.9,
+        "repeat_penalty": 1.08
+    }
+}

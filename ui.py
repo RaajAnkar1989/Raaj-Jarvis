@@ -13,6 +13,8 @@ from pathlib import Path
 
 import psutil
 
+from core.llm_config import load_llm_config
+
 from PyQt6.QtCore import (
     QEasingCurve, QMimeData, QObject, QPointF, QRectF, QSize, Qt,
     QTimer, QUrl, pyqtSignal,
@@ -477,6 +479,9 @@ class HudCanvas(QWidget):
         elif self.state == "LISTENING":
             sym = "●" if self._blink else "○"
             txt, col = f"{sym}  LISTENING",  qcol(C.GREEN)
+        elif self.state == "RECORDING":
+            sym = "●" if self._blink else "○"
+            txt, col = f"{sym}  RECORDING",  qcol(C.GREEN)
         else:
             sym = "●" if self._blink else "○"
             txt, col = f"{sym}  {self.state}", qcol(C.PRI)
@@ -855,8 +860,33 @@ class _DropCanvas(QWidget):
             z.mousePressEvent(e)
 
 
+DEFAULT_CONFIG = {
+    "llm_provider": "ollama",
+    "ollama_base_url": "http://localhost:11434",
+    "ollama_model": "llama3.2:latest",
+    "gemini_api_key": "",
+    "os_system": {"darwin": "mac", "windows": "windows"}.get(_OS.lower(), "linux"),
+}
+
+
+def _ensure_default_config() -> None:
+    if API_FILE.exists():
+        return
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    API_FILE.write_text(json.dumps(DEFAULT_CONFIG, indent=4), encoding="utf-8")
+
+
+def _config_is_valid(d: dict) -> bool:
+    if not d.get("os_system"):
+        return False
+    provider = (d.get("llm_provider") or "ollama").lower()
+    if provider == "ollama":
+        return bool(d.get("ollama_model") or d.get("ollama_base_url"))
+    return bool(d.get("gemini_api_key"))
+
+
 class SetupOverlay(QWidget):
-    done = pyqtSignal(str, str)
+    done = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -888,18 +918,54 @@ class SetupOverlay(QWidget):
             return w
 
         layout.addWidget(_lbl("◈  INITIALISATION REQUIRED", 13, True))
-        layout.addWidget(_lbl("Configure J.A.R.V.I.S. before first boot.", 9, color=C.PRI_DIM))
+        layout.addWidget(_lbl("Configure MARK XXXIX before first boot.", 9, color=C.PRI_DIM))
         layout.addSpacing(6)
 
         sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"color: {C.BORDER};"); layout.addWidget(sep)
         layout.addSpacing(4)
 
-        layout.addWidget(_lbl("GEMINI API KEY", 8, color=C.TEXT_DIM,
+        layout.addWidget(_lbl("AI PROVIDER", 8, color=C.TEXT_DIM,
                                align=Qt.AlignmentFlag.AlignLeft))
+        prov_row = QHBoxLayout(); prov_row.setSpacing(6)
+        self._sel_provider = "ollama"
+        self._prov_btns: dict[str, QPushButton] = {}
+        for key, label in [("ollama", "🏠  Local Ollama"), ("gemini", "☁  Gemini (optional)")]:
+            btn = QPushButton(label)
+            btn.setFont(QFont("Courier New", 9, QFont.Weight.Bold))
+            btn.setFixedHeight(32)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _, k=key: self._sel_provider_btn(k))
+            prov_row.addWidget(btn)
+            self._prov_btns[key] = btn
+        layout.addLayout(prov_row)
+        self._sel_provider_btn("ollama")
+        layout.addSpacing(8)
+
+        self._ollama_label = _lbl("OLLAMA MODEL", 8, color=C.TEXT_DIM,
+                                    align=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._ollama_label)
+        self._model_input = QLineEdit()
+        self._model_input.setPlaceholderText("llama3.2:latest")
+        self._model_input.setText("llama3.2:latest")
+        self._model_input.setFont(QFont("Courier New", 10))
+        self._model_input.setFixedHeight(32)
+        self._model_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: #000d12; color: {C.TEXT};
+                border: 1px solid {C.BORDER}; border-radius: 3px; padding: 4px 8px;
+            }}
+            QLineEdit:focus {{ border: 1px solid {C.PRI}; }}
+        """)
+        layout.addWidget(self._model_input)
+        layout.addSpacing(8)
+
+        self._gemini_label = _lbl("GEMINI API KEY (optional)", 8, color=C.TEXT_DIM,
+                                    align=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._gemini_label)
         self._key_input = QLineEdit()
         self._key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self._key_input.setPlaceholderText("AIza…")
+        self._key_input.setPlaceholderText("AIza… — only needed for Gemini cloud mode")
         self._key_input.setFont(QFont("Courier New", 10))
         self._key_input.setFixedHeight(32)
         self._key_input.setStyleSheet(f"""
@@ -952,6 +1018,32 @@ class SetupOverlay(QWidget):
         init_btn.clicked.connect(self._submit)
         layout.addWidget(init_btn)
 
+    def _sel_provider_btn(self, key: str):
+        self._sel_provider = key
+        use_ollama = key == "ollama"
+        self._ollama_label.setVisible(use_ollama)
+        self._model_input.setVisible(use_ollama)
+        self._gemini_label.setVisible(not use_ollama)
+        self._key_input.setVisible(not use_ollama)
+        pal = {"gemini": (C.PRI, "#001a22"), "ollama": (C.GREEN, "#001a0d")}
+        for k, btn in self._prov_btns.items():
+            if k == key:
+                fg, bg = pal[k]
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {fg}; color: {bg};
+                        border: none; border-radius: 3px; font-weight: bold;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: #000d12; color: {C.TEXT_DIM};
+                        border: 1px solid {C.BORDER}; border-radius: 3px;
+                    }}
+                    QPushButton:hover {{ color: {C.TEXT}; border: 1px solid {C.BORDER_B}; }}
+                """)
+
     def _sel(self, key: str):
         self._sel_os = key
         pal = {"windows":(C.PRI,"#001a22"),"mac":(C.ACC2,"#1a1400"),"linux":(C.GREEN,"#001a0d")}
@@ -974,14 +1066,22 @@ class SetupOverlay(QWidget):
                 """)
 
     def _submit(self):
+        provider = self._sel_provider
         key = self._key_input.text().strip()
-        if not key:
+        model = self._model_input.text().strip() or "llama3.2:latest"
+        if provider == "gemini" and not key:
             self._key_input.setStyleSheet(
                 self._key_input.styleSheet() +
                 f" QLineEdit {{ border: 1px solid {C.RED}; }}"
             )
             return
-        self.done.emit(key, self._sel_os)
+        self.done.emit({
+            "llm_provider": provider,
+            "gemini_api_key": key if provider == "gemini" else "",
+            "ollama_model": model,
+            "ollama_base_url": "http://localhost:11434",
+            "os_system": self._sel_os,
+        })
 
 
 class MainWindow(QMainWindow):
@@ -1001,6 +1101,7 @@ class MainWindow(QMainWindow):
         )
 
         self.on_text_command  = None
+        self.on_voice_request = None
         self._muted           = False
         self._current_file: str | None = None
 
@@ -1045,12 +1146,15 @@ class MainWindow(QMainWindow):
         self._state_sig.connect(self._apply_state)
 
         self._overlay: SetupOverlay | None = None
+        _ensure_default_config()
         self._ready = self._check_config()
         if not self._ready:
             self._show_setup()
 
         sc_mute = QShortcut(QKeySequence("F4"), self)
         sc_mute.activated.connect(self._toggle_mute)
+        sc_speak = QShortcut(QKeySequence("F3"), self)
+        sc_speak.activated.connect(self._request_voice)
         sc_full = QShortcut(QKeySequence("F11"), self)
         sc_full.activated.connect(self._toggle_fullscreen)
 
@@ -1144,7 +1248,7 @@ class MainWindow(QMainWindow):
         title.setFont(QFont("Courier New", 17, QFont.Weight.Bold))
         title.setStyleSheet(f"color: {C.PRI}; background: transparent;")
         mid.addWidget(title)
-        sub = QLabel("Just A Rather Very Intelligent System")
+        sub = QLabel("MARK XXXIX  ·  Just A Rather Very Intelligent System")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sub.setFont(QFont("Courier New", 7))
         sub.setStyleSheet(f"color: {C.PRI_DIM}; background: transparent;")
@@ -1334,6 +1438,21 @@ class MainWindow(QMainWindow):
         """)
         send.clicked.connect(self._send)
         row.addWidget(send)
+
+        self._speak_btn = QPushButton("🎤")
+        self._speak_btn.setFixedSize(30, 30)
+        self._speak_btn.setToolTip("Activate voice / press to speak (F3)")
+        self._speak_btn.setFont(QFont("Courier New", 11))
+        self._speak_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._speak_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C.PANEL}; color: {C.GREEN};
+                border: 1px solid {C.GREEN_D}; border-radius: 3px;
+            }}
+            QPushButton:hover {{ background: #001a0d; border: 1px solid {C.GREEN}; }}
+        """)
+        self._speak_btn.clicked.connect(self._request_voice)
+        row.addWidget(self._speak_btn)
         return row
 
     def _build_footer(self) -> QWidget:
@@ -1349,7 +1468,7 @@ class MainWindow(QMainWindow):
 
         lay.addWidget(_fl("[F4] Mute  ·  [F11] Fullscreen"))
         lay.addStretch()
-        lay.addWidget(_fl("FatihMakes Industries  ·  MARK XXXIX  ·  CLASSIFIED"))
+        lay.addWidget(_fl("FatihMakes Industries  ·  MARK XXXIX  ·  LOCAL"))
         lay.addStretch()
         lay.addWidget(_fl("© FATIHMAKES", C.PRI_DIM))
         return w
@@ -1401,11 +1520,35 @@ class MainWindow(QMainWindow):
                 QPushButton:hover {{ background: #001f10; }}
             """)
 
+    def _request_voice(self):
+        mode = (load_llm_config().get("voice_input_mode") or "always_on").lower()
+        if mode == "push_to_talk":
+            if self._muted:
+                self._log.append_log("SYS: Mic is muted — press F4 to unmute.")
+                return
+            if self.on_voice_request:
+                self._log.append_log("SYS: 🎤 Recording — speak now…")
+                self._apply_state("RECORDING")
+                threading.Thread(target=self.on_voice_request, daemon=True).start()
+            else:
+                self._log.append_log("SYS: Voice not connected yet.")
+            return
+
+        if self._muted:
+            self._muted = False
+            self.hud.muted = False
+            self._style_mute_btn()
+            self._log.append_log("SYS: Voice activated — just speak, no button needed.")
+        else:
+            self._log.append_log("SYS: Already listening — speak anytime.")
+        self._apply_state("LISTENING")
+        if self.on_voice_request:
+            threading.Thread(target=self.on_voice_request, daemon=True).start()
+
     def _send(self):
         txt = self._input.text().strip()
         if not txt: return
         self._input.clear()
-        self._log.append_log(f"You: {txt}")
         if self.on_text_command:
             threading.Thread(target=self.on_text_command, args=(txt,), daemon=True).start()
 
@@ -1414,17 +1557,21 @@ class MainWindow(QMainWindow):
         self.hud.speaking = (state == "SPEAKING")
 
     def _check_config(self) -> bool:
-        if not API_FILE.exists(): return False
+        _ensure_default_config()
+        if not API_FILE.exists():
+            return False
         try:
             d = json.loads(API_FILE.read_text(encoding="utf-8"))
-            return bool(d.get("gemini_api_key")) and bool(d.get("os_system"))
+            if not d.get("llm_provider"):
+                d["llm_provider"] = "ollama"
+            return _config_is_valid(d)
         except Exception:
             return False
 
     def _show_setup(self):
         ov = SetupOverlay(self.centralWidget())
         cw = self.centralWidget()
-        ow, oh = 460, 390
+        ow, oh = 460, 560
         ov.setGeometry(
             (cw.width()  - ow) // 2,
             (cw.height() - oh) // 2,
@@ -1434,18 +1581,25 @@ class MainWindow(QMainWindow):
         ov.show()
         self._overlay = ov
 
-    def _on_setup_done(self, key: str, os_name: str):
+    def _on_setup_done(self, cfg: dict):
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        API_FILE.write_text(
-            json.dumps({"gemini_api_key": key, "os_system": os_name}, indent=4),
-            encoding="utf-8",
-        )
+        API_FILE.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
         self._ready = True
         if self._overlay:
             self._overlay.hide()
             self._overlay = None
         self._apply_state("LISTENING")
-        self._log.append_log(f"SYS: Initialised. OS={os_name.upper()}. JARVIS online.")
+        if provider == "ollama":
+            model = cfg.get("ollama_model", "llama3.2:latest")
+            os_name = cfg.get("os_system", "mac").upper()
+            self._log.append_log(
+                f"SYS: Initialised. OS={os_name}. Local Ollama ({model}). JARVIS online."
+            )
+        else:
+            os_name = cfg.get("os_system", "mac").upper()
+            self._log.append_log(
+                f"SYS: Initialised. OS={os_name}. JARVIS online."
+            )
 
 class _RootShim:
     def __init__(self, app: QApplication):
@@ -1478,6 +1632,14 @@ class JarvisUI:
         return self._win._drop_zone.current_file()
 
     @property
+    def on_voice_request(self):
+        return self._win.on_voice_request
+
+    @on_voice_request.setter
+    def on_voice_request(self, cb):
+        self._win.on_voice_request = cb
+
+    @property
     def on_text_command(self):
         return self._win.on_text_command
 
@@ -1491,9 +1653,11 @@ class JarvisUI:
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
 
-    def wait_for_api_key(self):
+    def wait_for_ready(self):
         while not self._win._ready:
             time.sleep(0.1)
+
+    wait_for_api_key = wait_for_ready
 
     def start_speaking(self):
         self.set_state("SPEAKING")

@@ -10,6 +10,9 @@ import sounddevice as sd
 from google import genai
 from google.genai import types
 from ui import JarvisUI
+from core.llm_config import get_provider
+from core.local_engine import JarvisLocal
+from core.tool_executor import execute_tool
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
 )
@@ -567,133 +570,12 @@ class JarvisLive:
     async def _execute_tool(self, fc) -> types.FunctionResponse:
         name = fc.name
         args = dict(fc.args or {})
-
-        print(f"[JARVIS] 🔧 {name}  {args}")
-        self.ui.set_state("THINKING")
-
+        result = await execute_tool(name, args, self.ui, self.speak)
         if name == "save_memory":
-            category = args.get("category", "notes")
-            key      = args.get("key", "")
-            value    = args.get("value", "")
-            if key and value:
-                update_memory({category: {key: {"value": value}}})
-                print(f"[Memory] 💾 save_memory: {category}/{key} = {value}")
-            if not self.ui.muted:
-                self.ui.set_state("LISTENING")
             return types.FunctionResponse(
                 id=fc.id, name=name,
                 response={"result": "ok", "silent": True}
             )
-
-        loop   = asyncio.get_event_loop()
-        result = "Done."
-
-        try:
-            if name == "open_app":
-                r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
-                result = r or f"Opened {args.get('app_name')}."
-
-            elif name == "weather_report":
-                r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
-                result = r or "Weather delivered."
-
-            elif name == "browser_control":
-                r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "file_controller":
-                r = await loop.run_in_executor(None, lambda: file_controller(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "send_message":
-                r = await loop.run_in_executor(None, lambda: send_message(parameters=args, response=None, player=self.ui, session_memory=None))
-                result = r or f"Message sent to {args.get('receiver')}."
-
-            elif name == "reminder":
-                r = await loop.run_in_executor(None, lambda: reminder(parameters=args, response=None, player=self.ui))
-                result = r or "Reminder set."
-
-            elif name == "youtube_video":
-                r = await loop.run_in_executor(None, lambda: youtube_video(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-
-            elif name == "screen_process":
-                threading.Thread(
-                    target=screen_process,
-                    kwargs={"parameters": args, "response": None,
-                            "player": self.ui, "session_memory": None},
-                    daemon=True
-                ).start()
-                result = "Vision module activated. Stay completely silent — vision module will speak directly."
-
-            elif name == "computer_settings":
-                r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
-                result = r or "Done."
-
-            elif name == "desktop_control":
-                r = await loop.run_in_executor(None, lambda: desktop_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "code_helper":
-                r = await loop.run_in_executor(None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "dev_agent":
-                r = await loop.run_in_executor(None, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "agent_task":
-                from agent.task_queue import get_queue, TaskPriority
-                priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
-                priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
-                task_id  = get_queue().submit(goal=args.get("goal", ""), priority=priority, speak=self.speak)
-                result   = f"Task started (ID: {task_id})."
-
-            elif name == "web_search":
-                r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
-                result = r or "Done."
-            elif name == "file_processor":
-                if not args.get("file_path") and self.ui.current_file:
-                    args["file_path"] = self.ui.current_file
-                r = await loop.run_in_executor(
-                    None,
-                    lambda: file_processor(parameters=args, player=self.ui, speak=self.speak)
-                )
-                result = r or "Done."
-
-            elif name == "computer_control":
-                r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "game_updater":
-                r = await loop.run_in_executor(None, lambda: game_updater(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
-
-            elif name == "flight_finder":
-                r = await loop.run_in_executor(None, lambda: flight_finder(parameters=args, player=self.ui))
-                result = r or "Done."
-
-            elif name == "shutdown_jarvis":
-                self.ui.write_log("SYS: Shutdown requested.")
-                self.speak("Goodbye, sir.")
-                def _shutdown():
-                    import time, os
-                    time.sleep(1)
-                    os._exit(0)
-                threading.Thread(target=_shutdown, daemon=True).start()
-
-            else:
-                result = f"Unknown tool: {name}"
-
-        except Exception as e:
-            result = f"Tool '{name}' failed: {e}"
-            traceback.print_exc()
-            self.speak_error(name, e)
-
-        if not self.ui.muted:
-            self.ui.set_state("LISTENING")
-
-        print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
         return types.FunctionResponse(
             id=fc.id, name=name,
             response={"result": result}
@@ -856,8 +738,16 @@ class JarvisLive:
                     tg.create_task(self._play_audio())
 
             except Exception as e:
-                print(f"[JARVIS] ⚠️ {e}")
+                err = str(e)
+                print(f"[JARVIS] ⚠️ {err}")
                 traceback.print_exc()
+                if "API key not valid" in err or "API_KEY" in err.upper():
+                    self.ui.write_log(
+                        "ERR: Invalid Gemini API key. Use AIza… from Google AI Studio, "
+                        "or switch to Local (Ollama) in config/api_keys.json."
+                    )
+                else:
+                    self.ui.write_log(f"ERR: Gemini connection failed — {err[:120]}")
             self.set_speaking(False)
             self.ui.set_state("THINKING")
             print("[JARVIS] 🔄 Reconnecting in 3s...")
@@ -867,8 +757,12 @@ def main():
     ui = JarvisUI("face.png")
 
     def runner():
-        ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        ui.wait_for_ready()
+        provider = get_provider()
+        if provider == "ollama":
+            jarvis = JarvisLocal(ui, TOOL_DECLARATIONS)
+        else:
+            jarvis = JarvisLive(ui)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:

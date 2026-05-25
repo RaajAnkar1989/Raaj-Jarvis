@@ -1,0 +1,28 @@
+# Secrets — never commit API keys
+config/api_keys.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+*.spec
+
+# Runtime / memory
+memory/*.json
+*.log
+data/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Playwright
+.playwright/
+
+# IDE
+.idea/
+.vscode/

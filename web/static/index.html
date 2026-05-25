@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#00d4ff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MARK XXXIX" />
+  <meta name="description" content="MARK XXXIX — JARVIS AI assistant. Works on phone, tablet, and desktop." />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icons/face.png" />
+  <link rel="stylesheet" href="/styles.css" />
+  <title>MARK XXXIX — JARVIS</title>
+</head>
+<body>
+  <div id="setupOverlay" class="overlay hidden">
+    <div class="modal">
+      <h2>Connect to JARVIS Core</h2>
+      <p class="modal-sub">
+        The app UI runs on Netlify. Your <strong>local Ollama brain</strong> runs on your Mac via the backend server.
+      </p>
+      <label class="field-label" for="backendUrl">Backend URL</label>
+      <input id="backendUrl" type="url" placeholder="https://your-tunnel.example.com or http://192.168.1.5:8765" />
+      <p class="modal-hint">
+        Same Wi‑Fi: <code>http://YOUR-MAC-IP:8765</code><br />
+        Remote: run <code>./run_pwa.sh</code> on your Mac + Cloudflare Tunnel / ngrok.
+      </p>
+      <div class="modal-actions">
+        <button id="saveBackendBtn" type="button" class="primary">Connect</button>
+      </div>
+      <p id="setupError" class="setup-error hidden"></p>
+    </div>
+  </div>
+
+  <div id="settingsOverlay" class="overlay hidden">
+    <div class="modal">
+      <h2>Settings</h2>
+      <label class="field-label" for="settingsBackendUrl">Backend URL</label>
+      <input id="settingsBackendUrl" type="url" />
+      <p class="modal-hint" id="settingsStatus">Not connected</p>
+      <div class="modal-actions">
+        <button id="saveSettingsBtn" type="button" class="primary">Save &amp; reconnect</button>
+        <button id="closeSettingsBtn" type="button" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="app">
+    <header class="header">
+      <div class="brand">
+        <div class="arc"></div>
+        <div>
+          <h1>MARK XXXIX</h1>
+          <p>Just A Rather Very Intelligent System</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <span id="connDot" class="conn-dot offline" title="Connection"></span>
+        <span id="clock" class="clock">--:--:--</span>
+        <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
+        <button id="installBtn" class="ghost hidden" type="button">Install</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="side-panel metrics-panel">
+        <div class="panel-head">System</div>
+        <div class="metrics">
+          <div><span>Model</span><strong id="modelLabel">—</strong></div>
+          <div><span>Backend</span><strong id="backendLabel">—</strong></div>
+          <div><span>Voice</span><strong id="voiceModeLabel">Tap to activate</strong></div>
+        </div>
+        <div id="fileZone" class="file-zone">
+          <input id="fileInput" type="file" hidden />
+          <p id="fileHint">Drop a file here or tap to upload</p>
+          <button id="clearFileBtn" class="ghost small hidden" type="button">Clear file</button>
+        </div>
+      </section>
+
+      <section class="hud-panel">
+        <div id="hud" class="hud" aria-live="polite">
+          <div class="hud-ring ring-1"></div>
+          <div class="hud-ring ring-2"></div>
+          <div class="hud-ring ring-3"></div>
+          <img id="faceImg" class="hud-face" src="/icons/face.png" alt="JARVIS" />
+          <div class="hud-core">
+            <span id="stateLabel">OFFLINE</span>
+          </div>
+        </div>
+        <p id="statusHint" class="hint">Connecting to JARVIS core…</p>
+      </section>
+
+      <section class="log-panel">
+        <div class="panel-head">Activity Log</div>
+        <div id="log" class="log"></div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <form id="chatForm" class="input-row">
+        <input id="chatInput" type="text" placeholder="Ask JARVIS anything…" autocomplete="off" enterkeyhint="send" />
+        <button id="sendBtn" type="submit" aria-label="Send">▸</button>
+      </form>
+      <div class="controls">
+        <button id="micBtn" class="mic" type="button" aria-label="Voice">
+          <span class="mic-icon">🎤</span>
+          <span id="micLabel">Tap to activate voice</span>
+        </button>
+        <button id="muteBtn" class="ghost" type="button">Mic on</button>
+      </div>
+      <p class="footer-note">
+        <strong>Phone:</strong> Install from browser menu → Add to Home Screen.
+        Backend must run on your Mac with Ollama (<code>./run_pwa.sh</code>).
+      </p>
+    </footer>
+  </div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
