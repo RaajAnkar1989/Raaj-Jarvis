@@ -28,8 +28,40 @@ const settingsOverlay = $("#settingsOverlay");
 const backendUrlInput = $("#backendUrl");
 const settingsBackendUrl = $("#settingsBackendUrl");
 const setupError = $("#setupError");
+const memoryHint = $("#memoryHint");
+const barCpu = $("#barCpu");
+const barMem = $("#barMem");
+const barDisk = $("#barDisk");
+const barBatt = $("#barBatt");
+const cpuVal = $("#cpuVal");
+const memVal = $("#memVal");
+const diskVal = $("#diskVal");
+const battVal = $("#battVal");
 
 const STORAGE_KEY = "jarvis_api";
+const CLIENT_KEY = "jarvis_client_id";
+
+function clientId() {
+  let id = localStorage.getItem(CLIENT_KEY);
+  if (!id) {
+    id = (crypto.randomUUID && crypto.randomUUID()) || `c_${Date.now()}`;
+    localStorage.setItem(CLIENT_KEY, id);
+  }
+  return id;
+}
+
+function apiHeaders(extra = {}) {
+  return {
+    "X-Jarvis-Client-Id": clientId(),
+    ...extra,
+  };
+}
+
+function setBar(el, valEl, pct) {
+  const v = Math.max(0, Math.min(100, Number(pct) || 0));
+  if (el) el.style.width = `${v}%`;
+  if (valEl) valEl.textContent = `${Math.round(v)}%`;
+}
 
 let ws = null;
 let wsConnecting = false;
@@ -234,6 +266,7 @@ function connectWs() {
     wsConnecting = false;
     setConn(true);
     appendLog("SYS: Connected to JARVIS core.");
+    ws.send(JSON.stringify({ type: "register", client_id: clientId() }));
     ws.send(JSON.stringify({ type: "ping" }));
   };
 
@@ -264,9 +297,17 @@ function connectWs() {
         fileHint.textContent = `📎 ${msg.name}`;
         clearFileBtn.classList.remove("hidden");
       } else {
-        fileHint.textContent = "Drop a file here or tap to upload";
+        fileHint.textContent = "Drop PDF, DOC, MP3, etc. or tap to upload";
         clearFileBtn.classList.add("hidden");
       }
+    }
+    if (msg.type === "file_index" && msg.summary) {
+      fileHint.textContent = `📎 ${msg.name}`;
+      clearFileBtn.classList.remove("hidden");
+      appendLog(`SYS: Indexed — ${msg.summary.slice(0, 120)}…`);
+    }
+    if (msg.type === "memory") {
+      updateMemoryHint(msg.entries || {});
     }
   };
 
@@ -290,13 +331,13 @@ async function sendChat(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "chat", text: trimmed }));
+    ws.send(JSON.stringify({ type: "chat", text: trimmed, client_id: clientId() }));
     return;
   }
   await fetch(`${apiBase()}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: trimmed }),
+    headers: apiHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ text: trimmed, client_id: clientId() }),
   });
 }
 
@@ -304,7 +345,11 @@ async function transcribeBlob(blob) {
   if (blob.size < 1500) throw new Error("too short");
   const fd = new FormData();
   fd.append("audio", blob, "speech.webm");
-  const res = await fetch(`${apiBase()}/api/transcribe`, { method: "POST", body: fd });
+  const res = await fetch(`${apiBase()}/api/transcribe`, {
+    method: "POST",
+    headers: apiHeaders(),
+    body: fd,
+  });
   if (!res.ok) throw new Error("transcribe failed");
   return (await res.json()).text;
 }
@@ -320,7 +365,11 @@ function getMimeType() {
 async function uploadFile(file) {
   const fd = new FormData();
   fd.append("file", file, file.name);
-  const res = await fetch(`${apiBase()}/api/upload`, { method: "POST", body: fd });
+  const res = await fetch(`${apiBase()}/api/upload`, {
+    method: "POST",
+    headers: apiHeaders(),
+    body: fd,
+  });
   if (!res.ok) throw new Error("upload failed");
   return res.json();
 }
@@ -435,6 +484,64 @@ function deactivateVoice() {
   appendLog("SYS: Voice session ended.");
 }
 
+async function refreshMetrics() {
+  const base = apiBase();
+  if (!base) return;
+  try {
+    const res = await fetch(`${base}/api/metrics`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    const host = data.host || {};
+    setBar(barCpu, cpuVal, host.cpu);
+    setBar(barMem, memVal, host.memory);
+    setBar(barDisk, diskVal, host.disk);
+    if (data.file?.summary) {
+      fileHint.textContent = `📎 ${data.file.name || "file"}`;
+      clearFileBtn.classList.remove("hidden");
+    }
+  } catch {
+    /* ignore */
+  }
+  if (navigator.getBattery) {
+    try {
+      const batt = await navigator.getBattery();
+      setBar(barBatt, battVal, (batt.level || 0) * 100);
+    } catch {
+      setBar(barBatt, battVal, 0);
+    }
+  } else {
+    if (battVal) battVal.textContent = "N/A";
+  }
+}
+
+function updateMemoryHint(entries) {
+  if (!memoryHint) return;
+  const keys = Object.keys(entries || {});
+  if (!keys.length) {
+    memoryHint.textContent = "Device memory: JARVIS will remember your name, likes, and notes.";
+    return;
+  }
+  const preview = keys.slice(-3).map((k) => {
+    const v = entries[k]?.value || entries[k];
+    return `${k}: ${String(v).slice(0, 40)}`;
+  }).join(" · ");
+  memoryHint.textContent = `Remembers (${keys.length}): ${preview}`;
+}
+
+async function loadMemory() {
+  const base = apiBase();
+  if (!base) return;
+  try {
+    const res = await fetch(`${base}/api/memory`, { headers: apiHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      updateMemoryHint(data.entries || {});
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 async function refreshStatus() {
   const base = apiBase();
   if (!base) return;
@@ -447,6 +554,8 @@ async function refreshStatus() {
       fileHint.textContent = `📎 ${data.file_name}`;
       clearFileBtn.classList.remove("hidden");
     }
+    await refreshMetrics();
+    await loadMemory();
   } catch {
     setConn(false);
     modelLabel.textContent = "—";
@@ -567,4 +676,5 @@ tickClock();
 if (!showSetupIfNeeded()) {
   connectWs();
   refreshStatus();
+  setInterval(refreshMetrics, 4000);
 }

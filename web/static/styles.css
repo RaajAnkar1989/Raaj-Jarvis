@@ -144,6 +144,41 @@ body { min-height: 100dvh; }
 .metrics span { color: var(--text-dim); }
 .metrics strong { color: var(--pri); text-align: right; word-break: break-all; }
 
+.metric-bars { padding: 8px 10px 4px; display: grid; gap: 7px; }
+.bar-row {
+  display: grid;
+  grid-template-columns: 42px 1fr 34px;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.62rem;
+}
+.bar-row span { color: var(--text-dim); }
+.bar-row em { color: var(--pri); font-style: normal; text-align: right; font-size: 0.6rem; }
+.bar {
+  height: 7px;
+  background: #001018;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar .fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--pri-dim), var(--pri));
+  transition: width 0.4s ease;
+}
+.bar .fill.mem { background: linear-gradient(90deg, #005533, var(--green)); }
+.bar .fill.disk { background: linear-gradient(90deg, #553300, var(--accent)); }
+.bar .fill.batt { background: linear-gradient(90deg, #335500, #aaff00); }
+
+.memory-hint {
+  margin: 0 10px 8px;
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+  min-height: 2.5em;
+}
+
 .file-zone {
   margin: 10px;
   padding: 12px;

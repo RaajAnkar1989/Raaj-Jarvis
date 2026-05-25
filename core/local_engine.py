@@ -18,6 +18,7 @@ from core.jarvis_tts import set_speech_hooks, speak as jarvis_speak, warmup_tts
 from core.llm_config import load_llm_config
 from core.tool_executor import execute_tool
 from core.voice_input import listen_once, set_listen_gate, warmup_stt
+from core.client_memory import auto_remember_from_text, format_for_prompt as format_client_memory
 from memory.memory_manager import format_memory_for_prompt, load_memory
 
 FAST_MODEL = "llama3.2:latest"
@@ -73,6 +74,11 @@ _ACTION_RE = re.compile(
     re.I,
 )
 
+_FILE_Q_RE = re.compile(
+    r"\b(this|the|uploaded|that)\s+file\b|\b(file|document|pdf|doc|mp3|audio)\b|"
+    r"\bsummari[sz]e\b|\bwhat (?:does|is) (?:it|this|the file)\b|\bread (?:the|this)\b",
+    re.I,
+)
 _JSON_TOOL_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s+")
 
@@ -111,19 +117,29 @@ def _needs_tools(text: str) -> bool:
     return bool(_ACTION_RE.search(text))
 
 
-def _build_system_message() -> str:
+def _build_system_message(client_id: str | None = None, file_ctx: str | None = None) -> str:
     now = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
     mem = format_memory_for_prompt(load_memory())
+    client_mem = format_client_memory(client_id)
     base = (
-        f"You are JARVIS, a calm witty AI assistant. Today: {now}.\n"
-        "Speak naturally like a live conversation — warm, confident, concise.\n"
-        "Use 'sir' occasionally, not every sentence.\n"
-        "One or two short spoken sentences max. No markdown, lists, or thinking out loud.\n"
-        "For YouTube/music use youtube_video play. For websites use browser_control."
+        f"You are JARVIS — smart, warm, proactive AI assistant. Today: {now}.\n"
+        "Speak naturally in 1-3 short sentences. No markdown or bullet lists.\n"
+        "TOOLS (use when needed):\n"
+        "- youtube_video action=play query=<song> — ALWAYS for play song/music/video requests\n"
+        "- file_processor — for questions about uploaded files (summarize, extract, analyze)\n"
+        "- save_memory — remember user facts (name, preferences, language, favorites)\n"
+        "- browser_control, open_app, weather_report, web_search as appropriate\n"
+        "Never open youtube.com homepage when user asked to PLAY something — use youtube_video play.\n"
+        "If a file is loaded, use file_processor for file-related questions."
     )
+    parts = [base]
     if mem:
-        return f"{base}\n{mem}"
-    return base
+        parts.append(mem)
+    if client_mem:
+        parts.append(client_mem)
+    if file_ctx:
+        parts.append(f"[UPLOADED FILE]\n{file_ctx}")
+    return "\n".join(parts)
 
 
 def _trim_history(messages: list[dict], max_msgs: int = 10) -> list[dict]:
@@ -180,6 +196,15 @@ class JarvisLocal:
         self._listen_cooldown = float(cfg.get("listen_cooldown_sec") or 1.5)
 
         set_speech_hooks(self._on_tts_start, self._on_tts_end)
+
+    def _refresh_system(self) -> None:
+        client_id = getattr(self.ui, "client_id", None)
+        file_ctx = getattr(self.ui, "file_context", None)
+        if self._messages:
+            self._messages[0] = {
+                "role": "system",
+                "content": _build_system_message(client_id, file_ctx),
+            }
 
     def _on_tts_start(self):
         self.set_speaking(True)
@@ -371,6 +396,10 @@ class JarvisLocal:
         self.ui.write_log(f"You: {text}")
         self.ui.set_state("THINKING")
 
+        client_id = getattr(self.ui, "client_id", None)
+        auto_remember_from_text(client_id, text)
+        self._refresh_system()
+
         route = try_fast_route(text)
         if route:
             name, args = route
@@ -380,6 +409,37 @@ class JarvisLocal:
             except Exception as e:
                 traceback.print_exc()
                 self.speak_error(name, str(e))
+            self._is_busy = False
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return
+
+        current_file = getattr(self.ui, "current_file", None)
+        if current_file and _FILE_Q_RE.search(text):
+            from pathlib import Path
+
+            from core.file_index import index_file
+            from core.ollama_text import ollama_complete
+
+            self.speak("One moment, sir. Reading the file.")
+            try:
+                indexed = getattr(self.ui, "file_index", None)
+                if not indexed or indexed.get("path") != current_file:
+                    indexed = await asyncio.to_thread(index_file, Path(current_file))
+                    if hasattr(self.ui, "set_file_index"):
+                        self.ui.set_file_index(indexed)
+                prompt = (
+                    f"File: {indexed.get('name')}\nSummary: {indexed.get('summary')}\n\n"
+                    f"Content:\n{(indexed.get('text') or '')[:8000]}\n\n"
+                    f"User question: {text}\nAnswer helpfully in 2-4 sentences."
+                )
+                answer = await asyncio.to_thread(ollama_complete, prompt, max_tokens=280)
+                if answer.strip():
+                    self.speak(answer.strip())
+                    self.ui.write_log(f"Jarvis: {_short_speak(answer)}")
+            except Exception as e:
+                traceback.print_exc()
+                self.speak_error("file", str(e))
             self._is_busy = False
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")

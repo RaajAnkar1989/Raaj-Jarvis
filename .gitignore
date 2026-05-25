@@ -15,6 +15,7 @@ build/
 memory/*.json
 *.log
 data/uploads/
+data/client_memory/
 
 # OS
 .DS_Store

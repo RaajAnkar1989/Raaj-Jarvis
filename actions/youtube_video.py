@@ -64,6 +64,117 @@ def _open_url(url: str) -> None:
     except Exception as e:
         print(f"[YouTube] ⚠️ open_url failed: {e}")
 
+def _search_ddg(query: str) -> str | None:
+    try:
+        from duckduckgo_search import DDGS
+
+        with DDGS() as ddgs:
+            for r in ddgs.text(f"site:youtube.com {query}", max_results=8):
+                href = r.get("href") or ""
+                m = re.search(r"(?:youtube\.com/watch\?v=|youtu\.be/)([A-Za-z0-9_-]{11})", href)
+                if m:
+                    return f"https://www.youtube.com/watch?v={m.group(1)}&autoplay=1"
+    except Exception as e:
+        print(f"[YouTube] ⚠️ ddg search failed: {e}")
+    return None
+
+
+def _search_invidious(query: str) -> str | None:
+    if not _REQUESTS_OK:
+        return None
+    instances = (
+        "https://invidious.nerdvpn.de",
+        "https://inv.nadeko.net",
+        "https://invidious.io",
+    )
+    for base in instances:
+        try:
+            r = requests.get(
+                f"{base}/api/v1/search",
+                params={"q": query, "type": "video"},
+                timeout=8,
+            )
+            if r.status_code != 200:
+                continue
+            for item in r.json() if isinstance(r.json(), list) else []:
+                vid = item.get("videoId")
+                if vid and len(vid) == 11:
+                    return f"https://www.youtube.com/watch?v={vid}&autoplay=1"
+        except Exception:
+            continue
+    return None
+
+
+def _search_piped(query: str) -> str | None:
+    if not _REQUESTS_OK:
+        return None
+    bases = (
+        "https://pipedapi.kavin.rocks",
+        "https://api.piped.projectsegfau.lt",
+        "https://pipedapi.in.projectsegfau.lt",
+    )
+    for base in bases:
+        try:
+            r = requests.get(
+                f"{base}/search",
+                params={"q": query, "filter": "videos"},
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            items = data if isinstance(data, list) else data.get("items") or []
+            for item in items:
+                if item.get("type") != "stream":
+                    continue
+                vid = item.get("url") or item.get("id")
+                if vid and len(str(vid)) == 11:
+                    return f"https://www.youtube.com/watch?v={vid}&autoplay=1"
+        except Exception as e:
+            print(f"[YouTube] ⚠️ piped search failed ({base}): {e}")
+    return None
+
+
+def _search_video(query: str) -> str | None:
+    for fn in (_search_piped, _search_invidious, _search_ddg):
+        url = fn(query)
+        if url:
+            return url
+    return None
+
+
+def _parse_yt_initial_data(html: str) -> str | None:
+    m = re.search(r"var ytInitialData\s*=\s*(\{.*?\});", html, re.DOTALL)
+    if not m:
+        m = re.search(r'"ytInitialData"\s*:\s*(\{.*?\})\s*,\s*"ytInitialPlayerResponse"', html, re.DOTALL)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+
+        def walk(obj):
+            if isinstance(obj, dict):
+                vid = obj.get("videoId")
+                if isinstance(vid, str) and len(vid) == 11:
+                    return vid
+                for v in obj.values():
+                    found = walk(v)
+                    if found:
+                        return found
+            elif isinstance(obj, list):
+                for item in obj:
+                    found = walk(item)
+                    if found:
+                        return found
+            return None
+
+        vid = walk(data)
+        if vid:
+            return f"https://www.youtube.com/watch?v={vid}&autoplay=1"
+    except Exception:
+        pass
+    return None
+
+
 def _scrape_first_video_url(query: str) -> str | None:
 
     if not _REQUESTS_OK:
@@ -76,8 +187,12 @@ def _scrape_first_video_url(query: str) -> str | None:
     )
 
     try:
-        r    = requests.get(search_url, headers=HEADERS, timeout=10)
+        r    = requests.get(search_url, headers=HEADERS, timeout=12)
         html = r.text
+
+        parsed = _parse_yt_initial_data(html)
+        if parsed:
+            return parsed
 
         video_ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', html)
 
@@ -89,12 +204,12 @@ def _scrape_first_video_url(query: str) -> str | None:
 
             if f'/shorts/{vid}' in html:
                 continue
-            return f"https://www.youtube.com/watch?v={vid}"
+            return f"https://www.youtube.com/watch?v={vid}&autoplay=1"
 
     except Exception as e:
         print(f"[YouTube] ⚠️ scrape_first_video_url failed: {e}")
 
-    return None
+    return _search_video(query)
 
 def _extract_video_id(url: str) -> str | None:
     match = re.search(

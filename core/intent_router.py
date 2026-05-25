@@ -9,18 +9,27 @@ _PREFIX = re.compile(
     re.I,
 )
 _YOUTUBE_OPEN = re.compile(
-    r"\b(open|launch|start|go to)\s+(youtube|you\s*tube)\b", re.I
+    r"^\s*(?:open|launch|start|go to)\s+(?:the\s+)?(?:youtube|you\s*tube)\s*$",
+    re.I,
 )
 _YOUTUBE_PLAY_ON = re.compile(
-    r"\b(?:play|put on|start|listen to)\s+(.+?)\s+on\s+(?:youtube|you\s*tube)\b",
+    r"\b(?:play|put on|start|listen to|hear)\s+(.+?)\s+on\s+(?:youtube|you\s*tube)\b",
     re.I,
 )
 _YOUTUBE_PLAY_TRAIL = re.compile(
-    r"\b(?:play|put on|start|listen to)\s+(.+?)\s+(?:youtube|you\s*tube)\s*$",
+    r"\b(?:play|put on|start|listen to|hear)\s+(.+?)\s+(?:youtube|you\s*tube)\s*$",
     re.I,
 )
 _YOUTUBE_PREFIX = re.compile(
     r"\b(?:youtube|you\s*tube)\s+(?:play\s+)?(.+)$", re.I
+)
+_SONG_PLAY = re.compile(
+    r"\b(?:play|put on|start|listen to|hear)\s+(?:a\s+|an\s+|some\s+)?(.+?\s+song)\b",
+    re.I,
+)
+_MUSIC_PLAY = re.compile(
+    r"\b(?:play|put on|start|listen to|hear)\s+(?:a\s+|an\s+|some\s+)?(.+?\s+(?:music|track|video))\b",
+    re.I,
 )
 _GENERIC_PLAY = re.compile(
     r"\b(play|put on|start|listen to)\s+(?:a\s+)?(?:nice\s+)?(?:song|music|video)s?\b",
@@ -59,10 +68,16 @@ def try_fast_route(text: str) -> tuple[str, dict] | None:
     t = _clean(text)
     lower = t.lower()
 
-    if _YOUTUBE_OPEN.search(lower):
+    if _YOUTUBE_OPEN.match(lower):
         return ("browser_control", {"action": "go_to", "url": "https://www.youtube.com"})
 
     for pattern in (_YOUTUBE_PLAY_ON, _YOUTUBE_PLAY_TRAIL, _YOUTUBE_PREFIX):
+        m = pattern.search(t)
+        if m:
+            query = _normalize_query(m.group(1))
+            return ("youtube_video", {"action": "play", "query": query})
+
+    for pattern in (_SONG_PLAY, _MUSIC_PLAY):
         m = pattern.search(t)
         if m:
             query = _normalize_query(m.group(1))

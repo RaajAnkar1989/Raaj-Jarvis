@@ -13,12 +13,14 @@ import traceback
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Header, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.jarvis_tts import synthesize_bytes, warmup_tts
+from core.client_memory import load_client_memory, remember
+from core.file_index import index_file
 from core.llm_config import load_llm_config
 from core.voice_input import transcribe_file, warmup_stt
 from core.web_ui import WebUIAdapter
@@ -84,8 +86,9 @@ class PWAService:
         self._engine_thread.start()
         self.ui.write_log("SYS: PWA server online.")
 
-    async def handle_chat(self, text: str) -> None:
+    async def handle_chat(self, text: str, client_id: str | None = None) -> None:
         await self.ensure_started()
+        self.ui.client_id = client_id
         if self.ui.on_text_command:
             self.ui.on_text_command(text.strip())
         else:
@@ -110,6 +113,52 @@ def _lan_ip() -> str:
 
 def _server_port() -> int:
     return int(os.environ.get("JARVIS_PORT", "8765"))
+
+
+def _client_id(header: str | None = None, body: str | None = None) -> str | None:
+    return (header or body or "").strip() or None
+
+
+def _host_metrics() -> dict:
+    try:
+        import psutil
+
+        mem = psutil.virtual_memory()
+        return {
+            "cpu": round(psutil.cpu_percent(interval=0.1), 1),
+            "memory": round(mem.percent, 1),
+            "disk": round(psutil.disk_usage("/").percent, 1),
+        }
+    except Exception:
+        return {"cpu": 0, "memory": 0, "disk": 0}
+
+
+@app.get("/api/metrics")
+async def metrics(x_jarvis_client_id: str | None = Header(default=None)):
+    await service.ensure_started()
+    host = _host_metrics()
+    client_mem = load_client_memory(x_jarvis_client_id)
+    return {
+        "host": host,
+        "memory_entries": len((client_mem.get("entries") or {})),
+        "file": service.ui.file_index,
+    }
+
+
+@app.get("/api/memory")
+async def get_memory(x_jarvis_client_id: str | None = Header(default=None)):
+    data = load_client_memory(x_jarvis_client_id)
+    return {"entries": data.get("entries") or {}}
+
+
+@app.post("/api/memory")
+async def post_memory(payload: dict, x_jarvis_client_id: str | None = Header(default=None)):
+    cid = _client_id(x_jarvis_client_id, payload.get("client_id"))
+    key = (payload.get("key") or "").strip()
+    value = (payload.get("value") or "").strip()
+    if cid and key and value:
+        remember(cid, key, value)
+    return {"ok": True, "entries": load_client_memory(cid).get("entries") or {}}
 
 
 @app.get("/api/status")
@@ -139,11 +188,12 @@ async def config():
 
 
 @app.post("/api/chat")
-async def chat(payload: dict):
+async def chat(payload: dict, x_jarvis_client_id: str | None = Header(default=None)):
     text = (payload.get("text") or "").strip()
     if not text:
         return JSONResponse({"error": "empty message"}, status_code=400)
-    await service.handle_chat(text)
+    cid = _client_id(x_jarvis_client_id, payload.get("client_id"))
+    await service.handle_chat(text, cid)
     return {"ok": True}
 
 
@@ -167,8 +217,12 @@ async def transcribe(audio: UploadFile = File(...)):
 
 
 @app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    x_jarvis_client_id: str | None = Header(default=None),
+):
     await service.ensure_started()
+    service.ui.client_id = _client_id(x_jarvis_client_id)
     if not file.filename:
         return JSONResponse({"error": "no filename"}, status_code=400)
 
@@ -184,19 +238,27 @@ async def upload(file: UploadFile = File(...)):
     size = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
     service.ui.write_log(f"FILE: {safe_name} ({size}) loaded")
 
+    indexed = await asyncio.to_thread(index_file, dest)
+    service.ui.set_file_index(indexed)
+    if service.ui.client_id:
+        remember(service.ui.client_id, "last_file", f"{safe_name}: {indexed.get('summary', '')[:200]}")
+
+    summary = (indexed.get("summary") or "File uploaded.").strip()
     msg = (
-        f"[FILE_UPLOADED] path={dest} | name={safe_name} | "
-        f"type={dest.suffix.lstrip('.')} | size={size} | "
-        f"Briefly tell the user you can see the file '{safe_name}' "
-        f"({size}) has been uploaded and ask what they'd like to do with it."
+        f"I've loaded '{safe_name}' ({size}). Summary: {summary} "
+        f"What would you like to know about it?"
     )
-    await service.handle_chat(msg)
+    await service.handle_chat(
+        f"[FILE_READY] Tell the user briefly: {msg}",
+        service.ui.client_id,
+    )
 
     return {
         "ok": True,
         "name": safe_name,
         "path": str(dest),
         "size": size,
+        "summary": summary,
     }
 
 
@@ -247,9 +309,16 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
             kind = msg.get("type")
             if kind == "chat":
-                await service.handle_chat(msg.get("text", ""))
+                cid = _client_id(msg.get("client_id"))
+                await service.handle_chat(msg.get("text", ""), cid)
             elif kind == "mute":
                 service.ui.muted = bool(msg.get("value"))
+            elif kind == "register":
+                service.ui.client_id = _client_id(msg.get("client_id"))
+                await ws.send_json({
+                    "type": "memory",
+                    "entries": load_client_memory(service.ui.client_id).get("entries") or {},
+                })
             elif kind == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:

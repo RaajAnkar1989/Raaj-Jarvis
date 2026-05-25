@@ -72,8 +72,15 @@
           <div><span>Backend</span><strong id="backendLabel">—</strong></div>
           <div><span>Voice</span><strong id="voiceModeLabel">Tap to activate</strong></div>
         </div>
+        <div class="metric-bars">
+          <div class="bar-row"><span>CPU</span><div class="bar"><div id="barCpu" class="fill"></div></div><em id="cpuVal">—</em></div>
+          <div class="bar-row"><span>RAM</span><div class="bar"><div id="barMem" class="fill mem"></div></div><em id="memVal">—</em></div>
+          <div class="bar-row"><span>Disk</span><div class="bar"><div id="barDisk" class="fill disk"></div></div><em id="diskVal">—</em></div>
+          <div class="bar-row"><span>Battery</span><div class="bar"><div id="barBatt" class="fill batt"></div></div><em id="battVal">—</em></div>
+        </div>
+        <div id="memoryHint" class="memory-hint">Device memory: none yet</div>
         <div id="fileZone" class="file-zone">
-          <input id="fileInput" type="file" hidden />
+          <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg" />
           <p id="fileHint">Drop a file here or tap to upload</p>
           <button id="clearFileBtn" class="ghost small hidden" type="button">Clear file</button>
         </div>

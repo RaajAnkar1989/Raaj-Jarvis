@@ -21,6 +21,9 @@ class WebUIAdapter:
         self._muted = False
         self._state = "OFFLINE"
         self._current_file: str | None = None
+        self._file_index: dict | None = None
+        self._file_context: str | None = None
+        self.client_id: str | None = None
         self.on_text_command: Callable[[str], None] | None = None
         self.on_voice_request: Callable[[], None] | None = None
         self._listeners: list[Callable[[dict], None]] = []
@@ -56,12 +59,34 @@ class WebUIAdapter:
     def current_file(self) -> str | None:
         return self._current_file
 
+    @property
+    def file_context(self) -> str | None:
+        return self._file_context
+
+    @property
+    def file_index(self) -> dict | None:
+        return self._file_index
+
     def set_current_file(self, path: str | None) -> None:
         self._current_file = path
+        if not path:
+            self._file_index = None
+            self._file_context = None
         if path:
             self._broadcast({"type": "file", "name": Path(path).name})
         else:
             self._broadcast({"type": "file", "name": None})
+
+    def set_file_index(self, indexed: dict) -> None:
+        self._file_index = indexed
+        self._file_context = (
+            f"Name: {indexed.get('name')}\nSummary: {indexed.get('summary', '')}"
+        )
+        self._broadcast({
+            "type": "file_index",
+            "name": indexed.get("name"),
+            "summary": indexed.get("summary", ""),
+        })
 
     def set_state(self, state: str) -> None:
         self._state = state
