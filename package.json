@@ -1,0 +1,8 @@
+{
+  "name": "raaj-jarvis-pwa",
+  "private": true,
+  "description": "Static PWA frontend for MARK XXXIX JARVIS (Netlify deploy)",
+  "scripts": {
+    "build": "bash scripts/prepare-pwa-assets.sh"
+  }
+}

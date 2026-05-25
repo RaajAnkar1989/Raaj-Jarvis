@@ -1,6 +1,10 @@
 [build]
+  command = "npm run build"
   publish = "web/static"
-  command = "bash scripts/prepare-pwa-assets.sh"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NETLIFY_SKIP_PYTHON_INSTALL = "true"
 
 [[headers]]
   for = "/sw.js"

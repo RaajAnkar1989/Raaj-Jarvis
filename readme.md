@@ -22,7 +22,8 @@ Use **`./run_pwa.sh`** for phone/tablet access. Deploy the UI to **Netlify** (se
 cd Raaj-Jarvis
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-macos.txt   # or requirements.txt on Windows/Linux
+pip install -r requirements-macos.txt   # macOS
+pip install -r requirements-desktop.txt # Windows/Linux
 playwright install chromium
 cp config/api_keys.example.json config/api_keys.json
 ```
