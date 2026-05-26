@@ -118,6 +118,22 @@ TOOL_DECLARATIONS = [
         }
     },
     {
+        "name": "gmail",
+        "description": "Gmail — list inbox, draft, or send email (requires Gmail API in Settings).",
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {"type": "STRING", "description": "list | draft | send"},
+                "to": {"type": "STRING", "description": "Recipient email for draft/send"},
+                "subject": {"type": "STRING", "description": "Email subject"},
+                "body": {"type": "STRING", "description": "Email body"},
+                "message": {"type": "STRING", "description": "Alias for body"},
+                "query": {"type": "STRING", "description": "Search query for list (default inbox)"},
+            },
+            "required": []
+        }
+    },
+    {
         "name": "send_message",
         "description": "Sends a text message via WhatsApp, Telegram, or other messaging platform.",
         "parameters": {
@@ -132,7 +148,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "reminder",
-        "description": "Sets a timed reminder using Task Scheduler.",
+        "description": "Sets a real timed reminder/alarm on the Mac and notifies the phone.",
         "parameters": {
             "type": "OBJECT",
             "properties": {

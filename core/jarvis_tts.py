@@ -25,6 +25,7 @@ _speech_q: queue.Queue[str | None] = queue.Queue()
 _speech_thread: threading.Thread | None = None
 _on_speech_start: callable | None = None
 _on_speech_end: callable | None = None
+_disable_local_playback = False
 _speech_active = 0
 _speech_active_lock = threading.Lock()
 _prefetch_lock = threading.Lock()
@@ -57,6 +58,12 @@ def set_speech_hooks(on_start=None, on_end=None) -> None:
     global _on_speech_start, _on_speech_end
     _on_speech_start = on_start
     _on_speech_end = on_end
+
+
+def set_disable_local_playback(disable: bool) -> None:
+    """When True, speak() will not play through Mac/PC speakers (PWA remote clients only)."""
+    global _disable_local_playback
+    _disable_local_playback = disable
 
 
 def jarvisify(text: str) -> str:
@@ -256,6 +263,8 @@ def _ensure_speech_worker() -> None:
 
 def speak(text: str) -> None:
     """Queue speech — returns immediately; plays in order."""
+    if _disable_local_playback:
+        return
     clean = jarvisify(text.strip())
     if not clean:
         return
@@ -268,6 +277,8 @@ def speak(text: str) -> None:
 
 def speak_now(text: str) -> None:
     """Blocking speak — call from a worker thread."""
+    if _disable_local_playback:
+        return
     _speak_blocking(text)
 
 

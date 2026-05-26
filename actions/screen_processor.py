@@ -348,6 +348,12 @@ class _VisionSession:
             raise  
 
     async def _play_loop(self) -> None:
+        if getattr(self._player, "web_mode", False):
+            while True:
+                chunk = await self._audio_in.get()
+                if chunk is None:
+                    break
+            return
         stream = sd.RawOutputStream(
             samplerate=_RECEIVE_SAMPLE_RATE,
             channels=_CHANNELS,

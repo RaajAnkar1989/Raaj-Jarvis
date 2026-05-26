@@ -6,7 +6,16 @@ const $ = (sel) => document.querySelector(sel);
 const logEl = $("#log");
 const hudEl = $("#hud");
 const stateLabel = $("#stateLabel");
+const stateChip = $("#stateChip");
 const statusHint = $("#statusHint");
+const stopBtn = $("#stopBtn");
+const settingsVoice = $("#settingsVoice");
+const settingsPersonality = $("#settingsPersonality");
+const settingsSpeed = $("#settingsSpeed");
+const speedLabel = $("#speedLabel");
+const gmailClientId = $("#gmailClientId");
+const gmailClientSecret = $("#gmailClientSecret");
+const gmailRefreshToken = $("#gmailRefreshToken");
 const chatForm = $("#chatForm");
 const chatInput = $("#chatInput");
 const micBtn = $("#micBtn");
@@ -40,6 +49,146 @@ const battVal = $("#battVal");
 
 const STORAGE_KEY = "jarvis_api";
 const CLIENT_KEY = "jarvis_client_id";
+const PREFS_KEY = "raajarvis_prefs";
+const ALARM_KEY = "raajarvis_alarms";
+
+let heartbeatTimer = null;
+let lastPong = Date.now();
+let reconnectAttempts = 0;
+const scheduledAlarms = new Map();
+
+function loadPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function savePrefs(p) {
+  localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+}
+
+function speedToRate(pct) {
+  const n = Number(pct) || 0;
+  return n >= 0 ? `+${n}%` : `${n}%`;
+}
+
+function rateLabel(pct) {
+  const n = Number(pct) || 0;
+  return n === 0 ? "Normal" : n > 0 ? `Faster (+${n}%)` : `Slower (${n}%)`;
+}
+
+async function applySettingsToBackend() {
+  const base = apiBase();
+  if (!base) return;
+  const voice = settingsVoice?.value;
+  const personality = settingsPersonality?.value;
+  const speed = settingsSpeed?.value ?? 12;
+  await fetch(`${base}/api/settings`, {
+    method: "POST",
+    headers: apiHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      voice,
+      personality,
+      tts_rate: speedToRate(speed),
+      owner: "Raaj",
+    }),
+  });
+  const gid = gmailClientId?.value?.trim();
+  const gsec = gmailClientSecret?.value?.trim();
+  const gref = gmailRefreshToken?.value?.trim();
+  if (gid && gsec && gref) {
+    await fetch(`${base}/api/gmail/settings`, {
+      method: "POST",
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        client_id: gid,
+        client_secret: gsec,
+        refresh_token: gref,
+      }),
+    });
+  }
+  savePrefs({ voice, personality, speed });
+}
+
+async function loadSettingsFromBackend() {
+  const base = apiBase();
+  const prefs = loadPrefs();
+  if (settingsVoice && prefs.voice) settingsVoice.value = prefs.voice;
+  if (settingsPersonality && prefs.personality) settingsPersonality.value = prefs.personality;
+  if (settingsSpeed && prefs.speed != null) settingsSpeed.value = prefs.speed;
+  if (speedLabel && settingsSpeed) speedLabel.textContent = rateLabel(settingsSpeed.value);
+  if (!base) return;
+  try {
+    const res = await fetch(`${base}/api/settings`, { headers: apiHeaders() });
+    if (res.ok) {
+      const data = await res.json();
+      if (settingsVoice && data.voice) settingsVoice.value = data.voice;
+      if (settingsPersonality && data.personality) settingsPersonality.value = data.personality;
+      if (data.tts_rate && settingsSpeed) {
+        const m = String(data.tts_rate).match(/([+-]?\d+)/);
+        if (m) settingsSpeed.value = m[1];
+      }
+      if (speedLabel && settingsSpeed) speedLabel.textContent = rateLabel(settingsSpeed.value);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function interruptJarvis() {
+  stopPlayback();
+  audioQueue = Promise.resolve();
+  jarvisSpeaking = false;
+  if (stopBtn) stopBtn.classList.add("hidden");
+  updateMicState();
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "interrupt", client_id: clientId() }));
+  } else if (apiBase()) {
+    fetch(`${apiBase()}/api/interrupt`, { method: "POST", headers: apiHeaders() }).catch(() => {});
+  }
+  setState("LISTENING");
+}
+
+function schedulePhoneAlarm(date, time, message) {
+  if (!date || !time) return;
+  const when = new Date(`${date}T${time}:00`);
+  if (Number.isNaN(when.getTime())) return;
+  const ms = when.getTime() - Date.now();
+  if (ms <= 0) return;
+  const id = `${date}_${time}_${message}`;
+  if (scheduledAlarms.has(id)) return;
+  const timer = setTimeout(async () => {
+    scheduledAlarms.delete(id);
+    if (Notification.permission === "granted") {
+      new Notification("Raajarvis Reminder", { body: message });
+    }
+    appendLog(`SYS: Reminder — ${message}`);
+    try {
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.value = 0.15;
+      osc.start();
+      setTimeout(() => osc.stop(), 400);
+    } catch {
+      /* ignore */
+    }
+  }, ms);
+  scheduledAlarms.set(id, timer);
+  appendLog(`SYS: Phone alarm set for ${date} ${time}`);
+}
+
+async function ensureNotifications() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    await Notification.requestPermission();
+  }
+}
 
 function clientId() {
   let id = localStorage.getItem(CLIENT_KEY);
@@ -136,7 +285,6 @@ async function discoverBackendWithRetry(maxMs = 90000) {
 
 async function connectDiscovered(url) {
   localStorage.setItem(STORAGE_KEY, url);
-  backendLabel.textContent = shortBackend(url);
   setupOverlay.classList.add("hidden");
   connectWs();
   refreshStatus();
@@ -181,7 +329,7 @@ function appendLog(text) {
   const line = document.createElement("div");
   const lower = text.toLowerCase();
   if (lower.startsWith("you:")) line.className = "you";
-  else if (lower.startsWith("jarvis:")) line.className = "ai";
+  else if (lower.startsWith("jarvis:") || lower.startsWith("raajarvis:")) line.className = "ai";
   else if (lower.includes("err")) line.className = "err";
   else if (lower.startsWith("file:")) line.className = "sys";
   else line.className = "sys";
@@ -196,49 +344,47 @@ function setConn(ok) {
 }
 
 function setState(state) {
-  hudEl.className = "hud";
   const label = state || "OFFLINE";
-  stateLabel.textContent = label;
+  if (stateLabel) stateLabel.textContent = label;
+  if (stateChip) stateChip.textContent = label;
 
   if (label === "SPEAKING") {
     jarvisSpeaking = true;
-    hudEl.classList.add("speaking");
-    statusHint.textContent = "JARVIS is speaking…";
-    updateMicState();
+    if (statusHint) statusHint.textContent = "Tap Stop or speak to interrupt";
+    if (stopBtn) stopBtn.classList.remove("hidden");
   } else {
     jarvisSpeaking = false;
+    if (stopBtn) stopBtn.classList.add("hidden");
     if (label === "LISTENING") {
-      hudEl.classList.add("listening");
-      statusHint.textContent = voiceActive
-        ? "Voice active — just speak naturally"
-        : muted
-          ? "Microphone muted"
-          : "Tap mic once to activate voice, or type below";
+      if (statusHint) {
+        statusHint.textContent = voiceActive
+          ? "Listening — speak naturally"
+          : muted
+            ? "Mic muted"
+            : "Tap mic to talk";
+      }
     } else if (label === "THINKING") {
-      hudEl.classList.add("thinking");
-      statusHint.textContent = "Processing…";
+      if (statusHint) statusHint.textContent = "Thinking…";
     } else if (label === "MUTED") {
-      hudEl.classList.add("muted");
-      statusHint.textContent = "Microphone muted";
+      if (statusHint) statusHint.textContent = "Mic muted";
     } else if (label === "RECORDING") {
-      hudEl.classList.add("listening");
-      statusHint.textContent = "Listening…";
-    } else {
-      statusHint.textContent = apiBase() ? "Connecting…" : "Set backend URL in settings";
+      if (statusHint) statusHint.textContent = "Listening…";
+    } else if (statusHint) {
+      statusHint.textContent = apiBase() ? "Raajarvis ready" : "Connecting…";
     }
-    updateMicState();
   }
+  updateMicState();
 }
 
 function updateMicState() {
-  micBtn.disabled = muted || jarvisSpeaking;
+  micBtn.disabled = muted;
   micBtn.classList.toggle("active", voiceActive);
   if (voiceActive) {
-    micLabel.textContent = jarvisSpeaking ? "Speaking…" : "Voice active — speak now";
-    voiceModeLabel.textContent = "Always-on";
+    micLabel.textContent = jarvisSpeaking ? "Interrupt — speak" : "Listening…";
+    voiceModeLabel.textContent = "Voice on";
   } else {
-    micLabel.textContent = muted ? "Mic muted" : "Tap to activate voice";
-    voiceModeLabel.textContent = "Tap to activate";
+    micLabel.textContent = muted ? "Mic muted" : "Tap to talk";
+    voiceModeLabel.textContent = muted ? "Muted" : "Tap mic";
   }
 }
 
@@ -305,7 +451,6 @@ async function saveBackend(url) {
   }
   const data = await testBackend(clean);
   localStorage.setItem(STORAGE_KEY, clean);
-  backendLabel.textContent = shortBackend(clean);
   if (data.model) modelLabel.textContent = data.model;
   setupOverlay.classList.add("hidden");
   settingsOverlay.classList.add("hidden");
@@ -316,16 +461,12 @@ async function saveBackend(url) {
 
 function showSetupIfNeeded() {
   if (isAutoConnect()) {
-    backendLabel.textContent = window.__JARVIS_NETLIFY_PROXY__
-      ? "Auto (raajarvis.netlify.app)"
-      : shortBackend(bakedApi());
     return false;
   }
   if (!apiBase()) {
     setupOverlay.classList.remove("hidden");
     return true;
   }
-  backendLabel.textContent = shortBackend(apiBase());
   return false;
 }
 
@@ -343,10 +484,21 @@ function connectWs() {
 
   ws.onopen = () => {
     wsConnecting = false;
+    reconnectAttempts = 0;
+    lastPong = Date.now();
     setConn(true);
-    appendLog("SYS: Connected to JARVIS core.");
+    appendLog("SYS: Connected to Raajarvis.");
     ws.send(JSON.stringify({ type: "register", client_id: clientId() }));
     ws.send(JSON.stringify({ type: "ping" }));
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+        if (Date.now() - lastPong > 45000) {
+          try { ws.close(); } catch (_) {}
+        }
+      }
+    }, 15000);
   };
 
   ws.onmessage = (ev) => {
@@ -360,11 +512,13 @@ function connectWs() {
     }
     if (msg.type === "state") setState(msg.value);
     if (msg.type === "speech") {
-      appendLog(`Jarvis: ${msg.text}`);
+      appendLog(`Raajarvis: ${msg.text}`);
       playSpeech(msg.audio);
     }
-    if (msg.type === "hello" && msg.lan_url) {
-      appendLog(`SYS: Backend LAN URL: ${msg.lan_url}`);
+    if (msg.type === "pong") lastPong = Date.now();
+    if (msg.type === "interrupted") interruptJarvis();
+    if (msg.type === "alarm") {
+      schedulePhoneAlarm(msg.date, msg.time, msg.message);
     }
     if (msg.type === "muted") {
       muted = !!msg.value;
@@ -393,13 +547,16 @@ function connectWs() {
   ws.onclose = () => {
     wsConnecting = false;
     ws = null;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     setConn(false);
     if (!reconnectTimer && apiBase()) {
-      appendLog("SYS: Reconnecting…");
+      reconnectAttempts += 1;
+      const delay = Math.min(2500 + reconnectAttempts * 1000, 12000);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connectWs();
-      }, 2500);
+      }, delay);
     }
   };
 
@@ -409,6 +566,7 @@ function connectWs() {
 async function sendChat(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
+  appendLog(`You: ${trimmed}`);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "chat", text: trimmed, client_id: clientId() }));
     return;
@@ -499,6 +657,12 @@ function vadLoop() {
   const level = sum / data.length;
   const now = performance.now();
 
+  if (jarvisSpeaking && level > 20) {
+    interruptJarvis();
+    vadFrame = requestAnimationFrame(vadLoop);
+    return;
+  }
+
   if (jarvisSpeaking || muted) {
     if (vadRecording) stopVadRecording();
     vadFrame = requestAnimationFrame(vadLoop);
@@ -522,7 +686,8 @@ function vadLoop() {
 }
 
 async function activateVoice() {
-  if (voiceActive || muted || jarvisSpeaking) return;
+  if (voiceActive || muted) return;
+  await ensureNotifications();
   try {
     vadStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
@@ -533,7 +698,7 @@ async function activateVoice() {
     vadAnalyser.fftSize = 1024;
     source.connect(vadAnalyser);
     voiceActive = true;
-    appendLog("SYS: Voice activated — speak naturally.");
+    appendLog("SYS: Voice on — speak anytime.");
     setState("LISTENING");
     updateMicState();
     vadLoop();
@@ -597,7 +762,7 @@ function updateMemoryHint(entries) {
   if (!memoryHint) return;
   const keys = Object.keys(entries || {});
   if (!keys.length) {
-    memoryHint.textContent = "Device memory: JARVIS will remember your name, likes, and notes.";
+    memoryHint.textContent = "Raajarvis remembers your preferences on this device.";
     return;
   }
   const preview = keys.slice(-3).map((k) => {
@@ -654,10 +819,23 @@ chatForm.addEventListener("submit", (e) => {
 });
 
 micBtn.addEventListener("click", () => {
-  if (muted || jarvisSpeaking) return;
+  if (muted) return;
+  if (jarvisSpeaking) {
+    interruptJarvis();
+    if (!voiceActive) activateVoice();
+    return;
+  }
   if (voiceActive) deactivateVoice();
   else activateVoice();
 });
+
+if (stopBtn) stopBtn.addEventListener("click", () => interruptJarvis());
+
+if (settingsSpeed) {
+  settingsSpeed.addEventListener("input", () => {
+    if (speedLabel) speedLabel.textContent = rateLabel(settingsSpeed.value);
+  });
+}
 
 muteBtn.addEventListener("click", () => {
   muted = !muted;
@@ -670,7 +848,8 @@ muteBtn.addEventListener("click", () => {
 });
 
 settingsBtn.addEventListener("click", () => {
-  settingsBackendUrl.value = apiBase();
+  if (settingsBackendUrl) settingsBackendUrl.value = apiBase();
+  loadSettingsFromBackend();
   settingsOverlay.classList.remove("hidden");
 });
 
@@ -680,10 +859,15 @@ $("#closeSettingsBtn").addEventListener("click", () => {
 
 $("#saveSettingsBtn").addEventListener("click", async () => {
   try {
-    await saveBackend(settingsBackendUrl.value);
-    appendLog("SYS: Backend updated.");
+    await applySettingsToBackend();
+    if (settingsBackendUrl?.value?.trim()) {
+      await saveBackend(settingsBackendUrl.value);
+    }
+    $("#settingsStatus").textContent = "Saved";
+    settingsOverlay.classList.add("hidden");
+    appendLog("SYS: Settings saved.");
   } catch (e) {
-    $("#settingsStatus").textContent = e.message || "Connection failed";
+    $("#settingsStatus").textContent = e.message || "Save failed";
   }
 });
 
@@ -752,22 +936,31 @@ if ("serviceWorker" in navigator) {
 setInterval(tickClock, 1000);
 tickClock();
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && apiBase()) {
+    connectWs();
+    refreshStatus();
+  }
+});
+
 async function boot() {
   if (isAutoConnect() || apiBase()) {
     if (!showSetupIfNeeded()) {
       connectWs();
       refreshStatus();
-      setInterval(refreshMetrics, 4000);
+      loadSettingsFromBackend();
+      setInterval(refreshMetrics, 8000);
     }
     return;
   }
 
   if (window.__JARVIS_DISCOVERY__?.url) {
-    statusHint.textContent = "Looking for JARVIS on your Mac…";
+    if (statusHint) statusHint.textContent = "Connecting to Raajarvis…";
     const url = await discoverBackendWithRetry(90000);
     if (url) {
-      appendLog("SYS: Auto-connected to JARVIS core.");
+      appendLog("SYS: Connected.");
       await connectDiscovered(url);
+      loadSettingsFromBackend();
       return;
     }
   }

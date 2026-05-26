@@ -1,13 +1,13 @@
 {
-  "name": "MARK XXXIX — JARVIS",
-  "short_name": "JARVIS",
-  "description": "Personal JARVIS AI assistant powered by local Ollama",
+  "name": "Raajarvis",
+  "short_name": "Raajarvis",
+  "description": "Raaj's personal AI assistant",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "any",
-  "background_color": "#000610",
-  "theme_color": "#00d4ff",
+  "orientation": "portrait-primary",
+  "background_color": "#e8f4ff",
+  "theme_color": "#5eb3ff",
   "categories": ["productivity", "utilities"],
   "icons": [
     {

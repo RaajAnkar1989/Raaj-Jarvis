@@ -26,6 +26,7 @@ from actions.dev_agent import dev_agent
 from actions.web_search import web_search as web_search_action
 from actions.computer_control import computer_control
 from actions.game_updater import game_updater
+from actions.gmail_client import gmail_action
 
 
 async def execute_tool(
@@ -90,6 +91,18 @@ async def execute_tool(
                 None, lambda: reminder(parameters=args, response=None, player=ui)
             )
             result = r or "Reminder set."
+            if getattr(ui, "web_mode", False) and hasattr(ui, "emit_alarm"):
+                ui.emit_alarm(
+                    args.get("date", ""),
+                    args.get("time", ""),
+                    args.get("message", ""),
+                )
+
+        elif name == "gmail":
+            r = await loop.run_in_executor(
+                None, lambda: gmail_action(parameters=args, player=ui)
+            )
+            result = r or "Done."
 
         elif name == "youtube_video":
             r = await loop.run_in_executor(

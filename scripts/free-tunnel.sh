@@ -48,12 +48,12 @@ start_tunnel() {
   local url=""
   for _ in $(seq 1 120); do
     url="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_FILE" 2>/dev/null | head -1 || true)"
-    if [ -n "$url" ]; then
+    if grep -q "Registered tunnel connection" "$LOG_FILE" 2>/dev/null && [ -n "$url" ]; then
       break
     fi
     if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
       echo "Cloudflare tunnel exited. Log:"
-      tail -n 6 "$LOG_FILE" 2>/dev/null || true
+      tail -n 8 "$LOG_FILE" 2>/dev/null || true
       rm -f "$PID_FILE"
       return 1
     fi
@@ -66,10 +66,10 @@ start_tunnel() {
   fi
 
   echo "Verifying tunnel ..."
-  if ! verify_tunnel "$url"; then
-    echo "Tunnel URL not responding yet: $url"
-    stop_tunnel
-    return 1
+  if verify_tunnel "$url"; then
+    :
+  else
+    echo "Tunnel slow to respond — keeping it running anyway: $url"
   fi
 
   url="${url%/}"

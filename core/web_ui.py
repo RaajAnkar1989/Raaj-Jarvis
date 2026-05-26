@@ -28,6 +28,7 @@ class WebUIAdapter:
         self.on_voice_request: Callable[[], None] | None = None
         self._listeners: list[Callable[[dict], None]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._speech_epoch = 0
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -95,14 +96,36 @@ class WebUIAdapter:
     def write_log(self, text: str) -> None:
         self._broadcast({"type": "log", "text": text})
 
+    def cancel_speech(self) -> None:
+        self._speech_epoch += 1
+
+    def emit_alarm(self, date: str, time: str, message: str) -> None:
+        self._broadcast({
+            "type": "alarm",
+            "date": date,
+            "time": time,
+            "message": message,
+            "client_id": self.client_id,
+        })
+
     def emit_speech(self, text: str) -> None:
+        target_client = self.client_id
+        epoch = self._speech_epoch
+
         def _run() -> None:
+            if epoch != self._speech_epoch:
+                return
             audio = synthesize_bytes(text)
+            if epoch != self._speech_epoch:
+                return
+            event: dict = {"type": "speech", "text": text}
+            if target_client:
+                event["client_id"] = target_client
             if audio:
-                encoded = base64.b64encode(audio).decode("ascii")
-                self._broadcast({"type": "speech", "text": text, "audio": encoded})
+                event["audio"] = base64.b64encode(audio).decode("ascii")
             else:
-                self._broadcast({"type": "speech", "text": text, "audio": None})
+                event["audio"] = None
+            self._broadcast(event)
 
         threading.Thread(target=_run, daemon=True).start()
 

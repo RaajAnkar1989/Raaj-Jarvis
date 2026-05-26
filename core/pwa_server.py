@@ -18,10 +18,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from core.jarvis_tts import synthesize_bytes, warmup_tts
+from core.jarvis_tts import synthesize_bytes, set_disable_local_playback, warmup_tts
+
+try:
+    from actions.gmail_client import gmail_configured, save_gmail_credentials
+except ImportError:
+    def gmail_configured() -> bool:
+        return False
+
+    def save_gmail_credentials(*_a, **_k) -> None:
+        pass
 from core.client_memory import load_client_memory, remember
 from core.file_index import index_file
-from core.llm_config import load_llm_config
+from core.llm_config import load_llm_config, save_llm_config
 from core.voice_input import transcribe_file, warmup_stt
 from core.web_ui import WebUIAdapter
 
@@ -31,7 +40,7 @@ UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 PUBLIC_URL_FILE = BASE_DIR / "data" / "public_url.txt"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Raaj-Jarvis PWA", version="2.0.0")
+app = FastAPI(title="Raajarvis", version="2.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -46,14 +55,55 @@ class PWAService:
         self.engine = None
         self._engine_thread: threading.Thread | None = None
         self._clients: set[WebSocket] = set()
+        self._ws_client_ids: dict[WebSocket, str] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._started = False
         self.ui.subscribe(self._on_ui_event)
 
+    def _bind_ws_client(self, ws: WebSocket, client_id: str | None) -> None:
+        if client_id:
+            self._ws_client_ids[ws] = client_id
+
+    def _set_active_client(self, client_id: str | None) -> None:
+        if client_id:
+            self.ui.client_id = client_id
+
     def _on_ui_event(self, event: dict) -> None:
         if not self._loop:
             return
+        if event.get("type") in ("speech", "alarm"):
+            target = event.get("client_id") or self.ui.client_id
+            asyncio.run_coroutine_threadsafe(
+                self._send_to_client(target, event), self._loop
+            )
+            return
         asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
+
+    async def _send_to_client(self, client_id: str | None, event: dict) -> None:
+        if not client_id:
+            return
+        payload = json.dumps(event)
+        dead: list[WebSocket] = []
+        sent = False
+        for ws in list(self._clients):
+            if self._ws_client_ids.get(ws) != client_id:
+                continue
+            try:
+                await ws.send_text(payload)
+                sent = True
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self._clients.discard(ws)
+            self._ws_client_ids.pop(ws, None)
+        if not sent:
+            # Fallback: single connected client (legacy)
+            if len(self._clients) == 1:
+                ws = next(iter(self._clients))
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    pass
 
     async def _broadcast(self, event: dict) -> None:
         dead: list[WebSocket] = []
@@ -72,6 +122,7 @@ class PWAService:
         self._started = True
         self._loop = asyncio.get_event_loop()
         self.ui.bind_loop(self._loop)
+        set_disable_local_playback(True)
         await asyncio.gather(
             asyncio.to_thread(warmup_stt),
             asyncio.to_thread(warmup_tts),
@@ -87,9 +138,11 @@ class PWAService:
         self._engine_thread.start()
         self.ui.write_log("SYS: PWA server online.")
 
-    async def handle_chat(self, text: str, client_id: str | None = None) -> None:
+    async def handle_chat(self, text: str, client_id: str | None = None, ws: WebSocket | None = None) -> None:
         await self.ensure_started()
-        self.ui.client_id = client_id
+        self._set_active_client(client_id)
+        if ws and client_id:
+            self._bind_ws_client(ws, client_id)
         if self.ui.on_text_command:
             self.ui.on_text_command(text.strip())
         else:
@@ -226,18 +279,71 @@ async def config():
     }
 
 
+@app.get("/api/settings")
+async def get_settings():
+    cfg = load_llm_config()
+    return {
+        "voice": cfg.get("tts_voice", "en-US-AndrewMultilingualNeural"),
+        "personality": cfg.get("assistant_personality", "professional"),
+        "tts_rate": cfg.get("tts_rate", "+8%"),
+        "owner": cfg.get("owner_name", "Raaj"),
+        "gmail_configured": gmail_configured(),
+    }
+
+
+@app.post("/api/settings")
+async def post_settings(payload: dict):
+    data: dict = {}
+    if payload.get("voice"):
+        data["tts_voice"] = str(payload["voice"]).strip()
+    if payload.get("personality"):
+        data["assistant_personality"] = str(payload["personality"]).strip()
+    if payload.get("tts_rate") is not None:
+        data["tts_rate"] = str(payload["tts_rate"]).strip()
+    if payload.get("owner"):
+        data["owner_name"] = str(payload["owner"]).strip()
+    if data:
+        save_llm_config(data)
+    return {"ok": True}
+
+
+@app.post("/api/gmail/settings")
+async def post_gmail_settings(payload: dict):
+    client_id = str(payload.get("client_id") or "").strip()
+    client_secret = str(payload.get("client_secret") or "").strip()
+    refresh_token = str(payload.get("refresh_token") or "").strip()
+    if client_id and client_secret and refresh_token:
+        save_gmail_credentials(client_id, client_secret, refresh_token)
+    return {"ok": True, "configured": gmail_configured()}
+
+
+@app.post("/api/interrupt")
+async def interrupt_speech(x_jarvis_client_id: str | None = Header(default=None)):
+    await service.ensure_started()
+    service.ui.cancel_speech()
+    service.ui.set_state("LISTENING")
+    return {"ok": True}
+
+
 @app.post("/api/chat")
 async def chat(payload: dict, x_jarvis_client_id: str | None = Header(default=None)):
     text = (payload.get("text") or "").strip()
     if not text:
         return JSONResponse({"error": "empty message"}, status_code=400)
     cid = _client_id(x_jarvis_client_id, payload.get("client_id"))
+    service._set_active_client(cid)
     await service.handle_chat(text, cid)
     return {"ok": True}
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...)):
+async def transcribe(
+    audio: UploadFile = File(...),
+    x_jarvis_client_id: str | None = Header(default=None),
+):
+    cid = _client_id(x_jarvis_client_id)
+    if cid:
+        service._set_active_client(cid)
     suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
     data = await audio.read()
     if not data or len(data) < 1500:
@@ -261,7 +367,8 @@ async def upload(
     x_jarvis_client_id: str | None = Header(default=None),
 ):
     await service.ensure_started()
-    service.ui.client_id = _client_id(x_jarvis_client_id)
+    cid = _client_id(x_jarvis_client_id)
+    service._set_active_client(cid)
     if not file.filename:
         return JSONResponse({"error": "no filename"}, status_code=400)
 
@@ -349,21 +456,28 @@ async def websocket_endpoint(ws: WebSocket):
             kind = msg.get("type")
             if kind == "chat":
                 cid = _client_id(msg.get("client_id"))
-                await service.handle_chat(msg.get("text", ""), cid)
+                await service.handle_chat(msg.get("text", ""), cid, ws)
             elif kind == "mute":
                 service.ui.muted = bool(msg.get("value"))
             elif kind == "register":
-                service.ui.client_id = _client_id(msg.get("client_id"))
+                cid = _client_id(msg.get("client_id"))
+                service._bind_ws_client(ws, cid)
+                service._set_active_client(cid)
                 await ws.send_json({
                     "type": "memory",
                     "entries": load_client_memory(service.ui.client_id).get("entries") or {},
                 })
             elif kind == "ping":
                 await ws.send_json({"type": "pong"})
+            elif kind == "interrupt":
+                service.ui.cancel_speech()
+                service.ui.set_state("LISTENING")
+                await ws.send_json({"type": "interrupted"})
     except WebSocketDisconnect:
         pass
     finally:
         service._clients.discard(ws)
+        service._ws_client_ids.pop(ws, None)
 
 
 def _static_file(name: str, media_type: str | None = None) -> FileResponse:

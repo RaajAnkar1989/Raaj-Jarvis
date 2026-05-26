@@ -70,7 +70,8 @@ _ACTION_RE = re.compile(
     r"\b(open|launch|start|play|put on|close|search|google|find|weather|remind|"
     r"volume|brightness|browser|website|go to|file|folder|delete|move|copy|"
     r"shutdown|restart|screenshot|youtube|you tube|song|music|video|message|send|"
-    r"install|update|screen|camera|wifi|spotify|chrome|safari)\b",
+    r"install|update|screen|camera|wifi|spotify|chrome|safari|email|gmail|mail|"
+    r"alarm|timer|whatsapp|text)\b",
     re.I,
 )
 
@@ -121,16 +122,31 @@ def _build_system_message(client_id: str | None = None, file_ctx: str | None = N
     now = datetime.now().strftime("%A, %B %d, %Y %I:%M %p")
     mem = format_memory_for_prompt(load_memory())
     client_mem = format_client_memory(client_id)
+    cfg = load_llm_config()
+    personality = (cfg.get("assistant_personality") or "professional").lower()
+    owner = cfg.get("owner_name") or "Raaj"
+    if personality == "happy":
+        tone = (
+            f"You are Raajarvis — {owner}'s upbeat, cheerful personal assistant. "
+            "Be warm, positive, and energetic while staying helpful. Light humor is fine."
+        )
+    else:
+        tone = (
+            f"You are Raajarvis — {owner}'s capable personal assistant. "
+            "Be smart, warm, and proactive. Address the user as sir or by name when known."
+        )
     base = (
-        f"You are JARVIS — smart, warm, proactive AI assistant. Today: {now}.\n"
+        f"{tone} Today: {now}.\n"
         "Speak naturally in 1-3 short sentences. No markdown or bullet lists.\n"
         "TOOLS (use when needed):\n"
-        "- youtube_video action=play query=<song> — ALWAYS for play song/music/video requests\n"
-        "- file_processor — for questions about uploaded files (summarize, extract, analyze)\n"
-        "- save_memory — remember user facts (name, preferences, language, favorites)\n"
-        "- browser_control, open_app, weather_report, web_search as appropriate\n"
-        "Never open youtube.com homepage when user asked to PLAY something — use youtube_video play.\n"
-        "If a file is loaded, use file_processor for file-related questions."
+        "- gmail action=list|draft|send — email (when configured)\n"
+        "- send_message — WhatsApp/Telegram/Signal on the Mac\n"
+        "- reminder — real alarms/reminders (date YYYY-MM-DD, time HH:MM)\n"
+        "- youtube_video action=play query=<song>\n"
+        "- file_processor — uploaded file questions\n"
+        "- save_memory — remember user facts\n"
+        "- browser_control, open_app, weather_report, web_search\n"
+        "Never open youtube.com homepage when user asked to PLAY — use youtube_video play."
     )
     parts = [base]
     if mem:

@@ -2,36 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#00d4ff" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <meta name="theme-color" content="#5eb3ff" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="MARK XXXIX" />
-  <meta name="description" content="MARK XXXIX — JARVIS AI assistant. Works on phone, tablet, and desktop." />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Raajarvis" />
+  <meta name="description" content="Raajarvis — Raaj's personal AI assistant" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/face.png" />
   <link rel="stylesheet" href="/styles.css" />
-  <title>MARK XXXIX — JARVIS</title>
+  <title>Raajarvis</title>
   <script src="/discovery.js"></script>
   <script src="/config.js"></script>
 </head>
 <body>
   <div id="setupOverlay" class="overlay hidden">
-    <div class="modal">
-      <h2>Connect to JARVIS Core</h2>
-      <p class="modal-sub">
-        Usually <strong>raajarvis.netlify.app</strong> connects automatically when your Mac is on.
-      </p>
-      <label class="field-label" for="backendUrl">Backend URL (manual fallback)</label>
-      <input id="backendUrl" type="url" placeholder="https://….trycloudflare.com" />
-      <p class="modal-hint">
-        Free auto-connect: run once on Mac<br />
-        <code>./scripts/setup-free-https.sh</code>
-      </p>
-      <p class="modal-hint">
-        Same Wi‑Fi only: open <code>http://192.168.0.64:8765</code> on your phone.
-      </p>
+    <div class="modal scroll-modal">
+      <h2>Connect Raajarvis</h2>
+      <p class="modal-sub">Your Mac runs the AI brain. This app connects automatically when your Mac is on.</p>
+      <details class="advanced-block">
+        <summary>Advanced — manual backend URL</summary>
+        <label class="field-label" for="backendUrl">Backend URL</label>
+        <input id="backendUrl" type="url" placeholder="https://…" />
+      </details>
       <div class="modal-actions">
         <button id="saveBackendBtn" type="button" class="primary">Connect</button>
       </div>
@@ -40,13 +34,50 @@
   </div>
 
   <div id="settingsOverlay" class="overlay hidden">
-    <div class="modal">
+    <div class="modal scroll-modal">
       <h2>Settings</h2>
-      <label class="field-label" for="settingsBackendUrl">Backend URL</label>
-      <input id="settingsBackendUrl" type="url" />
-      <p class="modal-hint" id="settingsStatus">Not connected</p>
+
+      <label class="field-label" for="settingsVoice">Voice</label>
+      <select id="settingsVoice">
+        <option value="en-US-AndrewMultilingualNeural">Andrew (default)</option>
+        <option value="en-US-JennyNeural">Jenny (female)</option>
+        <option value="en-US-AriaNeural">Aria (female)</option>
+        <option value="en-US-GuyNeural">Guy (male)</option>
+      </select>
+
+      <label class="field-label" for="settingsPersonality">Personality</label>
+      <select id="settingsPersonality">
+        <option value="professional">Professional assistant</option>
+        <option value="happy">Happy mode — upbeat &amp; warm</option>
+      </select>
+
+      <label class="field-label" for="settingsSpeed">Speech speed</label>
+      <input id="settingsSpeed" type="range" min="0" max="30" value="12" />
+      <p class="modal-hint" id="speedLabel">Faster (+12%)</p>
+
+      <details class="settings-section">
+        <summary>Gmail (optional)</summary>
+        <p class="modal-hint">
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Create OAuth credentials</a>
+          · Enable <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a>
+          · <a href="https://developers.google.com/oauthplayground/" target="_blank" rel="noopener">OAuth Playground</a> for refresh token
+        </p>
+        <label class="field-label" for="gmailClientId">Client ID</label>
+        <input id="gmailClientId" type="text" autocomplete="off" placeholder="….apps.googleusercontent.com" />
+        <label class="field-label" for="gmailClientSecret">Client Secret</label>
+        <input id="gmailClientSecret" type="password" autocomplete="off" />
+        <label class="field-label" for="gmailRefreshToken">Refresh Token</label>
+        <input id="gmailRefreshToken" type="password" autocomplete="off" />
+      </details>
+
+      <details class="advanced-block">
+        <summary>Advanced — backend URL</summary>
+        <input id="settingsBackendUrl" type="url" placeholder="Auto-connected" />
+      </details>
+
+      <p class="modal-hint" id="settingsStatus">Connected</p>
       <div class="modal-actions">
-        <button id="saveSettingsBtn" type="button" class="primary">Save &amp; reconnect</button>
+        <button id="saveSettingsBtn" type="button" class="primary">Save</button>
         <button id="closeSettingsBtn" type="button" class="ghost">Close</button>
       </div>
     </div>
@@ -57,77 +88,68 @@
       <div class="brand">
         <div class="arc"></div>
         <div>
-          <h1>MARK XXXIX</h1>
-          <p>Just A Rather Very Intelligent System</p>
+          <h1>Raajarvis</h1>
+          <p>Raaj's personal assistant</p>
         </div>
       </div>
       <div class="header-right">
         <span id="connDot" class="conn-dot offline" title="Connection"></span>
-        <span id="clock" class="clock">--:--:--</span>
+        <span id="stateChip" class="state-chip">OFFLINE</span>
         <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
-        <button id="installBtn" class="ghost hidden" type="button">Install</button>
       </div>
     </header>
 
+    <div class="status-bar">
+      <span id="modelLabel">—</span>
+      <span id="voiceModeLabel">Tap mic to talk</span>
+    </div>
+
     <main class="main">
-      <section class="side-panel metrics-panel">
-        <div class="panel-head">System</div>
-        <div class="metrics">
-          <div><span>Model</span><strong id="modelLabel">—</strong></div>
-          <div><span>Backend</span><strong id="backendLabel">—</strong></div>
-          <div><span>Voice</span><strong id="voiceModeLabel">Tap to activate</strong></div>
-        </div>
-        <div class="metric-bars">
-          <div class="bar-row"><span>CPU</span><div class="bar"><div id="barCpu" class="fill"></div></div><em id="cpuVal">—</em></div>
-          <div class="bar-row"><span>RAM</span><div class="bar"><div id="barMem" class="fill mem"></div></div><em id="memVal">—</em></div>
-          <div class="bar-row"><span>Disk</span><div class="bar"><div id="barDisk" class="fill disk"></div></div><em id="diskVal">—</em></div>
-          <div class="bar-row"><span>Battery</span><div class="bar"><div id="barBatt" class="fill batt"></div></div><em id="battVal">—</em></div>
-        </div>
-        <div id="memoryHint" class="memory-hint">Device memory: none yet</div>
-        <div id="fileZone" class="file-zone">
-          <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg" />
-          <p id="fileHint">Drop a file here or tap to upload</p>
-          <button id="clearFileBtn" class="ghost small hidden" type="button">Clear file</button>
-        </div>
-      </section>
-
-      <section class="hud-panel">
-        <div id="hud" class="hud" aria-live="polite">
-          <div class="hud-ring ring-1"></div>
-          <div class="hud-ring ring-2"></div>
-          <div class="hud-ring ring-3"></div>
-          <img id="faceImg" class="hud-face" src="/icons/face.png" alt="JARVIS" />
-          <div class="hud-core">
-            <span id="stateLabel">OFFLINE</span>
-          </div>
-        </div>
-        <p id="statusHint" class="hint">Connecting to JARVIS core…</p>
-      </section>
-
       <section class="log-panel">
-        <div class="panel-head">Activity Log</div>
         <div id="log" class="log"></div>
       </section>
+
+      <details class="extras-panel">
+        <summary>System &amp; files</summary>
+        <div class="extras-inner">
+          <div class="metric-bars compact">
+            <div class="bar-row"><span>CPU</span><div class="bar"><div id="barCpu" class="fill"></div></div><em id="cpuVal">—</em></div>
+            <div class="bar-row"><span>RAM</span><div class="bar"><div id="barMem" class="fill mem"></div></div><em id="memVal">—</em></div>
+            <div class="bar-row"><span>Batt</span><div class="bar"><div id="barBatt" class="fill batt"></div></div><em id="battVal">—</em></div>
+          </div>
+          <div id="memoryHint" class="memory-hint">Memory: none yet</div>
+          <div id="fileZone" class="file-zone">
+            <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg" />
+            <p id="fileHint">Tap to upload a file</p>
+            <button id="clearFileBtn" class="ghost small hidden" type="button">Clear</button>
+          </div>
+        </div>
+      </details>
     </main>
 
     <footer class="footer">
+      <p id="statusHint" class="footer-hint">Connecting…</p>
       <form id="chatForm" class="input-row">
-        <input id="chatInput" type="text" placeholder="Ask JARVIS anything…" autocomplete="off" enterkeyhint="send" />
+        <input id="chatInput" type="text" placeholder="Ask Raajarvis…" autocomplete="off" enterkeyhint="send" />
         <button id="sendBtn" type="submit" aria-label="Send">▸</button>
       </form>
       <div class="controls">
         <button id="micBtn" class="mic" type="button" aria-label="Voice">
           <span class="mic-icon">🎤</span>
-          <span id="micLabel">Tap to activate voice</span>
+          <span id="micLabel">Tap to talk</span>
         </button>
-        <button id="muteBtn" class="ghost" type="button">Mic on</button>
+        <button id="stopBtn" class="ghost stop-btn hidden" type="button">Stop</button>
+        <button id="muteBtn" class="ghost compact-btn" type="button">Mic on</button>
       </div>
-      <p class="footer-note">
-        <strong>Phone:</strong> Install from browser menu → Add to Home Screen.
-        Backend must run on your Mac with Ollama (<code>./run_pwa.sh</code>).
-      </p>
     </footer>
   </div>
+
+  <span id="backendLabel" class="hidden" aria-hidden="true"></span>
+  <span id="clock" class="hidden" aria-hidden="true"></span>
+  <span id="diskVal" class="hidden"></span>
+  <span id="barDisk" class="hidden"></span>
+  <span id="installBtn" class="hidden"></span>
+  <div id="hud" class="hidden"><span id="stateLabel">OFFLINE</span><img id="faceImg" alt="" /></div>
 
   <script src="/app.js" type="module"></script>
 </body>

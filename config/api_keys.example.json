@@ -7,8 +7,10 @@
     "voice_input_mode": "always_on",
     "whisper_model": "tiny.en",
     "listen_cooldown_sec": 1.2,
+    "owner_name": "Raaj",
+    "assistant_personality": "professional",
     "tts_voice": "en-US-AndrewMultilingualNeural",
-    "tts_rate": "-2%",
+    "tts_rate": "+8%",
     "tts_pitch": "+0Hz",
     "tts_volume": "+0%",
     "ollama_options": {

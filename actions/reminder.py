@@ -49,7 +49,7 @@ notified = False
 
 try:
     from plyer import notification
-    notification.notify(title="J.A.R.V.I.S Reminder", message=message, timeout=15)
+    notification.notify(title="Raajarvis Reminder", message=message, timeout=15)
     notified = True
 except Exception:
     pass
@@ -57,7 +57,7 @@ except Exception:
 if not notified:
     try:
         from win10toast import ToastNotifier
-        ToastNotifier().show_toast("J.A.R.V.I.S Reminder", message, duration=15, threaded=False)
+        ToastNotifier().show_toast("Raajarvis Reminder", message, duration=15, threaded=False)
         notified = True
     except Exception:
         pass
@@ -85,7 +85,7 @@ notified = False
 
 try:
     from plyer import notification
-    notification.notify(title="J.A.R.V.I.S Reminder", message=message, timeout=15)
+    notification.notify(title="Raajarvis Reminder", message=message, timeout=15)
     notified = True
 except Exception:
     pass
@@ -93,7 +93,7 @@ except Exception:
 if not notified:
     try:
         import subprocess
-        script = 'display notification "{{}}" with title "J.A.R.V.I.S Reminder"'.format(
+        script = 'display notification "{{}}" with title "Raajarvis Reminder"'.format(
             message.replace('"', '')
         )
         subprocess.run(["osascript", "-e", script], check=False)
@@ -108,7 +108,7 @@ notified = False
 
 try:
     from plyer import notification
-    notification.notify(title="J.A.R.V.I.S Reminder", message=message, timeout=15)
+    notification.notify(title="Raajarvis Reminder", message=message, timeout=15)
     notified = True
 except Exception:
     pass
@@ -118,7 +118,7 @@ if not notified:
         import subprocess
         subprocess.run(
             ["notify-send", "--urgency=normal", "--expire-time=15000",
-             "J.A.R.V.I.S Reminder", message],
+             "Raajarvis Reminder", message],
             check=False
         )
     except Exception:
@@ -149,7 +149,7 @@ def _schedule_windows(target_dt: datetime, task_name: str,
     xml_content = (
         '<?xml version="1.0" encoding="UTF-16"?>\n'
         '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
-        '  <RegistrationInfo><Description>J.A.R.V.I.S Reminder</Description></RegistrationInfo>\n'
+        '  <RegistrationInfo><Description>Raajarvis Reminder</Description></RegistrationInfo>\n'
         '  <Triggers><TimeTrigger>\n'
         f'    <StartBoundary>{target_dt.strftime("%Y-%m-%dT%H:%M:%S")}</StartBoundary>\n'
         '    <Enabled>true</Enabled>\n'
