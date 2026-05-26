@@ -259,10 +259,8 @@ html, body {
   font-weight: 600;
 }
 
-/* Mobile HUD strip */
-.jarvis-hud-mobile {
-  display: none;
-}
+/* Mobile HUD strip — retired; desktop panels used on all sizes */
+.jarvis-hud-mobile { display: none !important; }
 
 /* Center column */
 .jarvis-center {
@@ -418,25 +416,91 @@ html, body {
 }
 
 .log-panel {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-  background: rgba(8, 14, 28, 0.94);
-  border: 1px solid rgba(34, 211, 238, 0.15);
-  border-radius: 12px;
-  padding: 10px;
+  position: fixed;
+  inset: max(12px, var(--safe-top)) max(12px, env(safe-area-inset-right))
+    max(12px, var(--safe-bottom)) max(12px, env(safe-area-inset-left));
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: rgba(4, 10, 22, 0.97);
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  border-radius: 14px;
+  box-shadow: 0 0 40px rgba(34, 211, 238, 0.18), 0 24px 64px rgba(0, 0, 0, 0.55);
+  padding: 0;
   overflow: hidden;
+  backdrop-filter: blur(16px);
 }
-.log {
-  height: 100%;
+.log-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.2);
+  background: rgba(34, 211, 238, 0.06);
+  flex-shrink: 0;
+}
+.log-panel-title {
+  font-size: 0.65rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--pri);
+  font-weight: 600;
+}
+.log-panel-close { width: 32px; height: 32px; font-size: 0.85rem; }
+.log-panel .log {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px;
   overflow-y: auto;
-  font-size: 0.72rem;
-  line-height: 1.4;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
-.log .you { color: #f0f9ff; }
-.log .ai { color: var(--pri); }
+.log .you {
+  color: #f0f9ff;
+  background: rgba(34, 211, 238, 0.08);
+  border-left: 3px solid rgba(34, 211, 238, 0.5);
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-radius: 0 8px 8px 0;
+}
+.log .ai {
+  color: #a5f3fc;
+  background: rgba(14, 165, 233, 0.12);
+  border-left: 3px solid var(--pri);
+  padding: 6px 8px;
+  margin: 6px 0;
+  border-radius: 0 8px 8px 0;
+}
 .log .sys { color: #64748b; font-size: 0.65rem; }
 .log .err { color: #f87171; }
+
+.jarvis-root.chat-open .jarvis-hud-desktop,
+.jarvis-root.chat-open .jarvis-hud-mobile {
+  opacity: 0.15;
+  pointer-events: none;
+  filter: blur(2px);
+}
+.jarvis-root.chat-open .jarvis-center {
+  opacity: 0.2;
+  pointer-events: none;
+}
+.jarvis-root.chat-open .jarvis-controls {
+  opacity: 0.25;
+  pointer-events: none;
+}
+.jarvis-root.chat-open .jarvis-chat-btn,
+.jarvis-root.chat-open .jarvis-settings-btn,
+.jarvis-root.chat-open .jarvis-conn {
+  opacity: 1;
+  pointer-events: auto;
+}
+.jarvis-root.chat-open .jarvis-chat-btn {
+  color: var(--pri);
+  border-color: rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
+}
+
+/* legacy inline log styles removed — see .log-panel above */
 
 /* Bottom controls */
 .jarvis-controls {
@@ -659,63 +723,68 @@ select, input[type="url"] {
 }
 .modal-hint a { color: var(--pri); }
 
-/* Desktop: show side HUDs */
+/* Side HUD panels — absolute left/right (desktop + mobile) */
+.jarvis-hud-desktop { display: flex; }
+
+/* Desktop: wider panels */
 @media (min-width: 961px) {
-  .jarvis-hud-desktop { display: flex; }
-  .jarvis-hud-mobile { display: none; }
+  .jarvis-hud { width: min(210px, 21vw); }
 }
 
-/* Mobile: hide side HUDs, show tile strip */
+/* Mobile & tablet: same 3-column HUD, compact panels */
 @media (max-width: 960px) {
-  .jarvis-hud-desktop { display: none !important; }
-  .jarvis-hud-mobile {
-    display: flex;
-    flex-direction: column;
-    position: absolute;
-    top: max(52px, var(--safe-top));
-    left: max(10px, env(safe-area-inset-left));
-    right: max(10px, env(safe-area-inset-right));
-    z-index: 2;
-    pointer-events: none;
+  .jarvis-hud {
+    width: min(108px, 27vw);
+    top: max(56px, var(--safe-top));
+    bottom: max(132px, var(--safe-bottom));
+    gap: 6px;
   }
-  .jarvis-hud-tiles-scroll {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .jarvis-hud-tiles-scroll::-webkit-scrollbar { display: none; }
-  .jarvis-hud-tile {
-    flex: 0 0 auto;
-    min-width: 72px;
-    padding: 8px 10px;
+  .jarvis-hud-panel {
+    padding: 8px 9px;
     border-radius: 10px;
-    background: rgba(8, 14, 28, 0.78);
-    border: 1px solid rgba(34, 211, 238, 0.14);
-    backdrop-filter: blur(10px);
   }
-  .jarvis-hud-tile-label {
+  .jarvis-hud-title {
     font-size: 0.48rem;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    color: rgba(34, 211, 238, 0.55);
+    letter-spacing: 0.28em;
+    margin-bottom: 6px;
   }
-  .jarvis-hud-tile-value {
-    font-family: "SF Mono", Menlo, monospace;
-    font-size: 0.82rem;
-    color: #f0f9ff;
-  }
+  .jarvis-hud-label { font-size: 0.5rem; letter-spacing: 0.12em; }
+  .jarvis-hud-value { font-size: 0.62rem; }
+  .jarvis-hud-detail, .jarvis-hud-empty, .jarvis-hud-tip { font-size: 0.52rem; }
+  .jarvis-hud-clock { font-size: 1rem; }
+  .jarvis-hud-date { font-size: 0.48rem; }
+  .recent-list li, .reminders-list li { font-size: 0.52rem; }
+  .file-zone { padding: 6px; }
   .jarvis-center {
-    padding-top: 100px;
-    justify-content: center;
+    max-width: 100%;
+    padding: 8px 6px;
+    padding-top: max(52px, var(--safe-top));
   }
-  .jarvis-brand { font-size: clamp(2rem, 9vw, 2.6rem); }
-  .jarvis-tagline { margin-bottom: 12px; font-size: 0.58rem; }
+  .jarvis-brand {
+    font-size: clamp(1.35rem, 7vw, 2rem);
+    letter-spacing: 0.32em;
+    margin-right: -0.32em;
+  }
+  .jarvis-tagline { margin-bottom: 8px; font-size: 0.5rem; letter-spacing: 0.22em; }
   .jarvis-orb-container {
-    width: min(220px, 58vw);
-    height: min(220px, 58vw);
-    margin-bottom: 12px;
+    width: min(160px, 42vw);
+    height: min(160px, 42vw);
+    margin-bottom: 8px;
   }
+  .jarvis-status { font-size: 0.62rem; letter-spacing: 0.18em; }
+  .jarvis-hint { font-size: 0.58rem; }
+  .chat-row input { font-size: 0.78rem; }
+  .jarvis-talk-btn { width: 56px; height: 56px; }
+}
+
+@media (max-width: 380px) {
+  .jarvis-hud { width: min(92px, 26vw); }
+  .jarvis-hud--left { left: max(6px, env(safe-area-inset-left)); }
+  .jarvis-hud--right { right: max(6px, env(safe-area-inset-right)); }
+}
+
+@media (min-width: 961px) and (max-width: 1180px) {
+  .jarvis-hud { width: min(180px, 18vw); }
 }
 
 .jarvis-orb-container.reminder-flash .jarvis-core {
@@ -726,8 +795,4 @@ select, input[type="url"] {
 @keyframes reminder-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.06); }
-}
-
-@media (min-width: 961px) and (max-width: 1180px) {
-  .jarvis-hud { width: min(180px, 18vw); }
 }

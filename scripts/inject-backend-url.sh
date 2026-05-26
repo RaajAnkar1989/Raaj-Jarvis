@@ -19,6 +19,13 @@ window.__JARVIS_DISCOVERY__ = {
 };
 EOF
 
+USE_PROXY=false
+if [ -n "$URL" ]; then
+  USE_PROXY=true
+elif [ -f "$REDIRECTS" ] && grep -q "^/api/" "$REDIRECTS" 2>/dev/null; then
+  USE_PROXY=true
+fi
+
 if [ -n "$URL" ]; then
   echo "Injecting backend URL: $URL"
   WS_URL="${URL/https:\/\//wss://}/ws"
@@ -35,6 +42,14 @@ EOF
 /api/*  ${URL}/api/:splat  200
 EOF
   echo "Netlify proxy: /api/* → ${URL}/api/*"
+elif [ "$USE_PROXY" = true ]; then
+  cat > "$ROOT/web/static/config.js" <<EOF
+// Generated at build time — do not edit by hand.
+window.__JARVIS_API__ = "";
+window.__JARVIS_WS_URL__ = "";
+window.__JARVIS_NETLIFY_PROXY__ = true;
+EOF
+  echo "Netlify proxy via _redirects (WebSocket uses GitHub discovery tunnel URL)."
 else
   cat > "$ROOT/web/static/config.js" <<EOF
 // Generated at build time — do not edit by hand.

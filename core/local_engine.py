@@ -41,8 +41,8 @@ def _ollama_options(*, tools: bool = False) -> dict[str, Any]:
     opts = cfg.get("ollama_options") or {}
     base: dict[str, Any] = {
         "temperature": float(opts.get("temperature", 0.45)),
-        "num_predict": int(opts.get("num_predict_tools" if tools else "num_predict", 100 if tools else 55)),
-        "num_ctx": int(opts.get("num_ctx", 1536)),
+        "num_predict": int(opts.get("num_predict_tools" if tools else "num_predict", 90 if tools else 48)),
+        "num_ctx": int(opts.get("num_ctx", 1024)),
         "top_p": float(opts.get("top_p", 0.9)),
         "repeat_penalty": float(opts.get("repeat_penalty", 1.08)),
     }
@@ -303,10 +303,10 @@ class JarvisLocal:
 
     def _web_tts(self, text: str):
         try:
-            if hasattr(self.ui, "emit_speech_sync"):
-                self.ui.emit_speech_sync(text)
-            else:
+            if hasattr(self.ui, "emit_speech"):
                 self.ui.emit_speech(text)
+            elif hasattr(self.ui, "emit_speech_sync"):
+                self.ui.emit_speech_sync(text)
         finally:
             self.set_speaking(False)
             self._listen_blocked_until = time.time() + self._listen_cooldown
@@ -395,16 +395,12 @@ class JarvisLocal:
 
     def _stream_and_speak(self, messages: list[dict]) -> str:
         """Stream Ollama tokens; speak each finished sentence immediately."""
-        web = getattr(self.ui, "web_mode", False)
         buffer = ""
         full = ""
 
         for token in self._ollama_chat_stream(messages):
             buffer += token
             full += token
-
-            if web:
-                continue
 
             while True:
                 m = re.search(r"[.!?](?:\s+|$)", buffer)
@@ -416,17 +412,13 @@ class JarvisLocal:
                     continue
                 self.speak(sentence)
 
-        if web:
-            text = _strip_model_noise(full)
-            if text:
-                self.speak(text)
-            return text
-
+        text = _strip_model_noise(full)
         tail = buffer.strip()
-        if tail:
+        if tail and (not text or tail not in text):
             self.speak(tail)
-
-        return _strip_model_noise(full)
+            if not text:
+                text = tail
+        return text
 
     async def _handle_user_message(self, text: str):
         from core.stt_filters import prepare_user_text
@@ -571,6 +563,7 @@ class JarvisLocal:
                         reply = _short_speak(str(result).strip())
                         append_chat_turn(client_id, "assistant", reply)
                         self._messages.append({"role": "assistant", "content": reply})
+                        self.speak(reply)
                 continue
 
             content = (message.get("content") or "").strip()

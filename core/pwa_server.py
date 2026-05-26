@@ -12,6 +12,7 @@ import threading
 import traceback
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Header, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,7 @@ from core.jarvis_tts import synthesize_bytes, set_disable_local_playback, warmup
 
 try:
     from actions.gmail_client import (
+        APP_ORIGIN,
         gmail_configured,
         gmail_status,
         oauth_callback,
@@ -31,6 +33,7 @@ try:
         save_gmail_credentials,
     )
 except ImportError:
+    APP_ORIGIN = "https://raajarvis.netlify.app"
     def gmail_configured() -> bool:
         return False
 
@@ -374,11 +377,25 @@ async def post_gmail_settings(payload: dict):
     return {"ok": True, **gmail_status()}
 
 
+def _oauth_redirect_base(request: Request) -> str:
+    origin = (request.headers.get("origin") or "").strip().rstrip("/")
+    if origin.startswith("https://") and "netlify.app" in origin:
+        return origin
+    ref = request.headers.get("referer") or ""
+    if "netlify.app" in ref:
+        try:
+            parsed = urlparse(ref)
+            if parsed.scheme and parsed.netloc:
+                return f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            pass
+    return APP_ORIGIN
+
+
 @app.get("/api/gmail/oauth/start")
-async def gmail_oauth_start():
-    base = _public_url() or f"http://127.0.0.1:{_server_port()}"
+async def gmail_oauth_start(request: Request):
     try:
-        data = oauth_start(base)
+        data = oauth_start(_oauth_redirect_base(request))
         return RedirectResponse(data["auth_url"])
     except RuntimeError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
@@ -408,8 +425,7 @@ async def gmail_oauth_callback(code: str = "", state: str = "", error: str = "")
 
 @app.get("/api/gmail/oauth/redirect-uris")
 async def gmail_redirect_uris():
-    base = _public_url() or f"http://127.0.0.1:{_server_port()}"
-    return {"redirect_uris": oauth_redirect_uris(base)}
+    return {"redirect_uris": oauth_redirect_uris(), "app_origin": APP_ORIGIN}
 
 
 @app.post("/api/interrupt")

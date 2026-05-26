@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import base64
 import hashlib
 import json
@@ -22,6 +23,7 @@ _AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
 _CALENDAR = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
 _PKCE_FILE = _BASE / "data" / "gmail_pkce.json"
+APP_ORIGIN = os.environ.get("JARVIS_APP_URL", "https://raajarvis.netlify.app").rstrip("/")
 
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -110,10 +112,9 @@ def _load_pkce() -> dict | None:
         return None
 
 
-def oauth_redirect_uris(base_url: str) -> list[str]:
-    base = base_url.rstrip("/")
+def oauth_redirect_uris(_base_url: str | None = None) -> list[str]:
     uris = [
-        f"{base}/api/gmail/oauth/callback",
+        f"{APP_ORIGIN}/api/gmail/oauth/callback",
         "http://127.0.0.1:8765/api/gmail/oauth/callback",
         "http://localhost:8765/api/gmail/oauth/callback",
     ]
@@ -126,13 +127,14 @@ def oauth_redirect_uris(base_url: str) -> list[str]:
     return out
 
 
-def oauth_start(base_url: str) -> dict[str, str]:
+def oauth_start(redirect_base: str | None = None) -> dict[str, str]:
     c = _creds()
     client_id = c["client_id"]
     if not client_id:
         raise RuntimeError("Add your Google OAuth Client ID in Settings first.")
 
-    redirect_uri = f"{base_url.rstrip('/')}/api/gmail/oauth/callback"
+    base = (redirect_base or APP_ORIGIN).rstrip("/")
+    redirect_uri = f"{base}/api/gmail/oauth/callback"
     verifier, challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
     _save_pkce(state, verifier, redirect_uri)

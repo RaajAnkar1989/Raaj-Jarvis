@@ -11,6 +11,8 @@ const activateHint = $("#activateHint");
 const micNote = $("#micNote");
 const chatToggleBtn = $("#chatToggleBtn");
 const logPanel = $("#logPanel");
+const closeChatBtn = $("#closeChatBtn");
+const jarvisRoot = document.querySelector(".jarvis-root");
 const brainHint = $("#brainHint");
 const settingsModel = $("#settingsModel");
 const settingsProvider = $("#settingsProvider");
@@ -257,10 +259,11 @@ async function loadGmailStatus() {
     const uriRes = await fetch(`${base}/api/gmail/oauth/redirect-uris`, { headers: apiHeaders() });
     if (uriRes.ok && gmailRedirectHint) {
       const { redirect_uris: uris } = await uriRes.json();
-      if (uris?.length) {
+      const primary = uris?.[0];
+      if (primary) {
         gmailRedirectHint.innerHTML =
           "Add this redirect URI in Google Cloud Console:<br><code>" +
-          uris.map((u) => u.replace(/</g, "&lt;")).join("</code><br><code>") +
+          primary.replace(/</g, "&lt;") +
           "</code>";
       }
     }
@@ -270,12 +273,12 @@ async function loadGmailStatus() {
 }
 
 async function connectGmail() {
-  const base = apiBase();
+  const base = oauthBase() || apiBase();
   if (!base) throw new Error("Connect to your Mac backend first.");
   const clientId = gmailClientId?.value?.trim();
   if (!clientId) throw new Error("Paste your Google Client ID first.");
 
-  await fetch(`${base}/api/gmail/settings`, {
+  await fetch(`${apiBase() || base}/api/gmail/settings`, {
     method: "POST",
     headers: apiHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ client_id: clientId }),
@@ -283,9 +286,10 @@ async function connectGmail() {
 
   if (gmailStatusLine) gmailStatusLine.textContent = "Opening Google sign-in…";
 
-  const popup = window.open(`${base}/api/gmail/oauth/start`, "_blank", "noopener");
+  const startUrl = `${base}/api/gmail/oauth/start`;
+  const popup = window.open(startUrl, "_blank", "noopener");
   if (!popup) {
-    window.location.href = `${base}/api/gmail/oauth/start`;
+    window.location.href = startUrl;
   }
 
   let attempts = 0;
@@ -508,8 +512,23 @@ function bakedApi() {
   return v && String(v).trim() ? String(v).trim().replace(/\/$/, "") : "";
 }
 
-function isAutoConnect() {
-  return !!(bakedApi() || window.__JARVIS_NETLIFY_PROXY__);
+function isNetlifyApp() {
+  const h = window.location.hostname;
+  return h.includes("netlify.app") || h === "raajarvis.netlify.app";
+}
+
+function oauthBase() {
+  if (isNetlifyApp() || window.__JARVIS_NETLIFY_PROXY__) {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  return apiBase();
+}
+
+function setChatOpen(open) {
+  if (!logPanel) return;
+  logPanel.classList.toggle("hidden", !open);
+  jarvisRoot?.classList.toggle("chat-open", open);
+  if (open && logEl) logEl.scrollTop = logEl.scrollHeight;
 }
 
 async function fetchDiscoveryUrl() {
@@ -619,11 +638,19 @@ function apiBase() {
   return "";
 }
 
+function isAutoConnect() {
+  return !!(bakedApi() || window.__JARVIS_NETLIFY_PROXY__);
+}
+
 function wsUrl() {
   const direct = window.__JARVIS_WS_URL__;
   if (direct && String(direct).trim()) {
     const u = String(direct).trim().replace(/\/$/, "");
     return u.endsWith("/ws") ? u : `${u}/ws`;
+  }
+  const saved = savedApi();
+  if ((window.__JARVIS_NETLIFY_PROXY__ || isNetlifyApp()) && saved) {
+    return saved.replace(/^http/, "ws") + "/ws";
   }
   return apiBase().replace(/^http/, "ws") + "/ws";
 }
@@ -1385,8 +1412,11 @@ settingsBtn.addEventListener("click", () => openSettings());
 $("#closeSettingsBtn").addEventListener("click", () => closeSettings());
 
 chatToggleBtn?.addEventListener("click", () => {
-  logPanel?.classList.toggle("hidden");
+  const open = logPanel?.classList.contains("hidden");
+  setChatOpen(open);
 });
+
+closeChatBtn?.addEventListener("click", () => setChatOpen(false));
 
 gmailConnectBtn?.addEventListener("click", async () => {
   try {
@@ -1493,7 +1523,7 @@ async function boot() {
   ensureNotifications();
   restoreLocalAlarmsOnBoot();
 
-  if (window.__JARVIS_DISCOVERY__?.url && !isAutoConnect()) {
+  if (window.__JARVIS_DISCOVERY__?.url) {
     const fresh = await discoverBackend();
     if (fresh) {
       const saved = savedApi();

@@ -102,16 +102,6 @@
       </div>
     </aside>
 
-    <!-- Mobile: compact top tiles -->
-    <div class="jarvis-hud-mobile">
-      <div class="jarvis-hud-tiles-scroll">
-        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Batt</span><span class="jarvis-hud-tile-value" id="mobBatt">—</span></div>
-        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Mem</span><span class="jarvis-hud-tile-value" id="mobMem">—</span></div>
-        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Timers</span><span class="jarvis-hud-tile-value" id="mobTimers">0</span></div>
-        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Session</span><span class="jarvis-hud-tile-value" id="mobSession">Idle</span></div>
-      </div>
-    </div>
-
     <!-- Center -->
     <div class="jarvis-center">
       <h1 class="jarvis-brand">JARVIS</h1>
@@ -134,10 +124,14 @@
       <p id="jarvisStatus" class="jarvis-status">Tap to activate</p>
       <p id="activateHint" class="hidden">TAP TO ACTIVATE</p>
       <p id="statusHint" class="hidden"></p>
+    </div>
 
-      <div id="logPanel" class="log-panel hidden">
-        <div id="log" class="log"></div>
+    <div id="logPanel" class="log-panel hidden" aria-label="Conversation">
+      <div class="log-panel-head">
+        <span class="log-panel-title">Messages</span>
+        <button id="closeChatBtn" type="button" class="icon-btn log-panel-close" aria-label="Close">✕</button>
       </div>
+      <div id="log" class="log"></div>
     </div>
 
     <!-- Bottom mic -->
@@ -193,6 +187,7 @@
           and
           <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Calendar API</a>.
           Only your Client ID is needed — tap Connect to sign in with Google.
+          Use redirect URI <strong>https://raajarvis.netlify.app/api/gmail/oauth/callback</strong> only.
         </p>
         <label class="field-label" for="gmailClientId">Client ID</label>
         <input id="gmailClientId" type="text" autocomplete="off" placeholder="….apps.googleusercontent.com" />

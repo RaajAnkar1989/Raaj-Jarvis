@@ -1,0 +1,2 @@
+# Proxy API through Netlify — OAuth + REST (WebSocket still uses tunnel discovery)
+/api/*  https://sherman-crystal-dimensions-remind.trycloudflare.com/api/:splat  200

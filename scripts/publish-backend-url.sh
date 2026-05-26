@@ -6,17 +6,23 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 URL="${1:-}"
 URL="${URL%/}"
 FILE="data/public-backend-url.txt"
+REDIRECTS="web/static/_redirects"
 
 if [ -z "$URL" ] || [[ ! "$URL" =~ ^https:// ]]; then
   echo "Usage: $0 https://your-backend-url" >&2
   exit 1
 fi
 
-mkdir -p "$ROOT/data"
+mkdir -p "$ROOT/data" "$ROOT/web/static"
 echo "$URL" > "$ROOT/$FILE"
 
+cat > "$ROOT/$REDIRECTS" <<EOF
+# Proxy API through Netlify — OAuth + REST (WebSocket still uses tunnel discovery)
+/api/*  ${URL}/api/:splat  200
+EOF
+
 if ! command -v gh >/dev/null 2>&1; then
-  echo "Saved locally: $ROOT/$FILE (install gh to auto-publish for Netlify discovery)"
+  echo "Saved locally: $ROOT/$FILE and $REDIRECTS (install gh to auto-publish)"
   exit 0
 fi
 
@@ -34,19 +40,25 @@ else
   exit 1
 fi
 
-B64="$(printf '%s' "$URL" | base64 | tr -d '\n')"
-API="repos/${OWNER}/${REPO}/contents/${FILE}"
-SHA="$(gh api "$API" --jq .sha 2>/dev/null || true)"
+_publish_file() {
+  local path="$1"
+  local message="$2"
+  local content
+  content="$(cat "$ROOT/$path")"
+  local b64
+  b64="$(printf '%s' "$content" | base64 | tr -d '\n')"
+  local api="repos/${OWNER}/${REPO}/contents/${path}"
+  local sha
+  sha="$(gh api "$api" --jq .sha 2>/dev/null || true)"
+  if [ -n "$sha" ]; then
+    gh api "$api" -X PUT -f message="$message" -f content="$b64" -f sha="$sha" >/dev/null
+  else
+    gh api "$api" -X PUT -f message="$message" -f content="$b64" >/dev/null
+  fi
+}
 
-if [ -n "$SHA" ]; then
-  gh api "$API" -X PUT \
-    -f message="chore: update JARVIS backend URL" \
-    -f content="$B64" \
-    -f sha="$SHA" >/dev/null
-else
-  gh api "$API" -X PUT \
-    -f message="chore: add JARVIS backend URL" \
-    -f content="$B64" >/dev/null
-fi
+_publish_file "$FILE" "chore: update JARVIS backend URL"
+_publish_file "$REDIRECTS" "chore: update Netlify API proxy for Gmail OAuth"
 
 echo "Published $URL → github.com/${OWNER}/${REPO}/${FILE}"
+echo "Published Netlify proxy → github.com/${OWNER}/${REPO}/${REDIRECTS}"
