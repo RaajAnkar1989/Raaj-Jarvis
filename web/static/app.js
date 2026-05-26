@@ -6,6 +6,23 @@ const $ = (sel) => document.querySelector(sel);
 const logEl = $("#log");
 const hudEl = $("#hud");
 const stateLabel = $("#stateLabel");
+const faceImg = $("#faceImg");
+const activateHint = $("#activateHint");
+const micNote = $("#micNote");
+const chatToggleBtn = $("#chatToggleBtn");
+const logPanel = $("#logPanel");
+const brainHint = $("#brainHint");
+const settingsModel = $("#settingsModel");
+const settingsProvider = $("#settingsProvider");
+const settingsConn = $("#settingsConn");
+const todayTime = $("#todayTime");
+const todayDate = $("#todayDate");
+const timerCount = $("#timerCount");
+const barTimers = $("#barTimers");
+const barSession = $("#barSession");
+const sessionVal = $("#sessionVal");
+const taskCount = $("#taskCount");
+const recentApps = $("#recentApps");
 const stateChip = $("#stateChip");
 const statusHint = $("#statusHint");
 const stopBtn = $("#stopBtn");
@@ -34,7 +51,6 @@ const fileHint = $("#fileHint");
 const clearFileBtn = $("#clearFileBtn");
 const setupOverlay = $("#setupOverlay");
 const settingsSidebar = $("#settingsSidebar");
-const rightRail = $("#rightRail");
 const backendUrlInput = $("#backendUrl");
 const settingsBackendUrl = $("#settingsBackendUrl");
 const setupError = $("#setupError");
@@ -47,25 +63,19 @@ const cpuVal = $("#cpuVal");
 const memVal = $("#memVal");
 const diskVal = $("#diskVal");
 const battVal = $("#battVal");
-const heroHud = $("#heroHud");
-const heroState = $("#heroState");
-const clockDisplay = $("#clockDisplay");
 const remindersList = $("#remindersList");
-const wallpaperPreview = $("#wallpaperPreview");
-const wallpaperImg = $("#wallpaperImg");
-const setWallpaperBtn = $("#setWallpaperBtn");
-const stageEl = $("#stage");
 
 const STORAGE_KEY = "jarvis_api";
 const CLIENT_KEY = "jarvis_client_id";
 const PREFS_KEY = "raajarvis_prefs";
 const ALARM_KEY = "raajarvis_alarms";
-const WALLPAPER_KEY = "raajarvis_wallpaper";
+const RECENT_KEY = "raajarvis_recent";
+const VOICE_ACTIVE_KEY = "raajarvis_voice_on";
 
 let lastLogText = "";
 let lastLogAt = 0;
-let pendingWallpaperUrl = null;
 let chatSending = false;
+let micKeepAliveTimer = null;
 
 let heartbeatTimer = null;
 let lastPong = Date.now();
@@ -95,7 +105,95 @@ function upsertLocalAlarm(date, time, message) {
   saveLocalAlarms(items);
 }
 
+function pushRecent(label) {
+  if (!label || !recentApps) return;
+  let items = [];
+  try {
+    items = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+  } catch {
+    items = [];
+  }
+  items = [label, ...items.filter((x) => x !== label)].slice(0, 5);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(items));
+  renderRecentApps(items);
+}
+
+function renderRecentApps(items = []) {
+  if (!recentApps) return;
+  if (!items.length) {
+    try {
+      items = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    } catch {
+      items = [];
+    }
+  }
+  recentApps.innerHTML = "";
+  if (!items.length) {
+    const li = document.createElement("li");
+    li.className = "empty";
+    li.textContent = "No recent activity";
+    recentApps.appendChild(li);
+    return;
+  }
+  for (const name of items) {
+    const li = document.createElement("li");
+    li.textContent = name;
+    recentApps.appendChild(li);
+  }
+}
+
+function updateModelDisplay(data) {
+  const model = data?.model || "—";
+  const provider = (data?.provider || "ollama").toUpperCase();
+  const online = !!data?.ok;
+  if (settingsModel) settingsModel.textContent = model;
+  if (settingsProvider) settingsProvider.textContent = provider;
+  if (settingsConn) settingsConn.textContent = online ? "Connected" : "Offline";
+  if (modelLabel) modelLabel.textContent = model;
+  if (brainHint) {
+    brainHint.textContent = online
+      ? `${provider} · ${model}`
+      : "ADD BRAIN KEY IN SETTINGS";
+  }
+}
+
+function updateSessionUi(state) {
+  const s = (state || "OFFLINE").toUpperCase();
+  let pct = 20;
+  let label = "Idle";
+  if (s === "LISTENING" || s === "RECORDING") {
+    pct = 100;
+    label = voiceActive ? "Listening" : "Ready";
+  } else if (s === "THINKING") {
+    pct = 65;
+    label = "Thinking";
+  } else if (s === "SPEAKING") {
+    pct = 80;
+    label = "Speaking";
+  } else if (s === "OFFLINE") {
+    pct = 5;
+    label = "Offline";
+  }
+  if (barSession) barSession.style.width = `${pct}%`;
+  if (sessionVal) sessionVal.textContent = label;
+}
+
+function updateTimerUi(count) {
+  const n = Number(count) || 0;
+  if (timerCount) timerCount.textContent = String(n);
+  if (barTimers) barTimers.style.width = `${Math.min(100, n * 25)}%`;
+  if (taskCount) {
+    taskCount.textContent = n ? `${n} reminder${n === 1 ? "" : "s"}` : "No open tasks";
+  }
+}
+
 function loadPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
   } catch {
@@ -170,6 +268,8 @@ async function loadSettingsFromBackend() {
       }
       if (speedLabel && settingsSpeed) speedLabel.textContent = rateLabel(settingsSpeed.value);
     }
+    const statusRes = await fetch(`${base}/api/status`, { headers: apiHeaders() });
+    if (statusRes.ok) updateModelDisplay(await statusRes.json());
   } catch {
     /* ignore */
   }
@@ -395,27 +495,19 @@ function appendLog(text) {
 function setConn(ok) {
   connDot.className = "conn-dot " + (ok ? "online" : "offline");
   connDot.title = ok ? "Connected to backend" : "Backend offline";
-  if (stateChip) {
-    stateChip.classList.toggle("online", ok);
-    stateChip.classList.toggle("offline", !ok);
-    if (!ok && stateChip.textContent !== "SPEAKING" && stateChip.textContent !== "LISTENING") {
-      stateChip.textContent = ok ? "ONLINE" : "OFFLINE";
-    }
-  }
-  if (heroHud) {
-    heroHud.classList.toggle("online", ok);
-    if (!ok && heroState) heroState.textContent = "OFFLINE";
-  }
+  if (hudEl) hudEl.classList.toggle("online", ok);
+  if (!ok) updateSessionUi("OFFLINE");
 }
 
 function setHeroMode(state) {
-  if (!heroHud) return;
-  heroHud.classList.remove("speaking", "listening", "thinking");
+  if (!hudEl) return;
+  hudEl.classList.remove("speaking", "listening", "thinking");
   const s = (state || "").toUpperCase();
-  if (s === "SPEAKING") heroHud.classList.add("speaking");
-  else if (s === "LISTENING" || s === "RECORDING") heroHud.classList.add("listening");
-  else if (s === "THINKING") heroHud.classList.add("thinking");
-  if (heroState) heroState.textContent = s || "STANDBY";
+  if (s === "SPEAKING") hudEl.classList.add("speaking");
+  else if (s === "LISTENING" || s === "RECORDING") hudEl.classList.add("listening");
+  else if (s === "THINKING") hudEl.classList.add("thinking");
+  if (stateLabel) stateLabel.textContent = s || "STANDBY";
+  updateSessionUi(s);
 }
 
 function setState(state) {
@@ -453,14 +545,14 @@ function setState(state) {
 }
 
 function updateMicState() {
-  micBtn.disabled = muted;
-  micBtn.classList.toggle("active", voiceActive);
-  if (voiceActive) {
-    micLabel.textContent = jarvisSpeaking ? "Interrupt — speak" : "Listening…";
-    voiceModeLabel.textContent = "Voice on";
-  } else {
-    micLabel.textContent = muted ? "Mic muted" : "Tap to talk";
-    voiceModeLabel.textContent = muted ? "Muted" : "Tap mic";
+  if (micBtn) micBtn.classList.toggle("active", voiceActive);
+  if (activateHint) {
+    activateHint.textContent = voiceActive ? "LISTENING — TAP MIC TO STOP" : "TAP TO ACTIVATE";
+  }
+  if (micNote && voiceActive) {
+    micNote.textContent = "Mic stays on until you tap again";
+  } else if (micNote) {
+    micNote.textContent = "TAP MIC · ALLOW MICROPHONE WHEN ASKED";
   }
 }
 
@@ -488,6 +580,7 @@ function playSpeech(base64Audio) {
       if (currentAudio === audio) currentAudio = null;
       jarvisSpeaking = false;
       updateMicState();
+      if (voiceActive && !vadFrame) vadLoop();
       resolve();
     };
     audio.onerror = () => {
@@ -588,6 +681,8 @@ function connectWs() {
       const lower = msg.text.toLowerCase();
       if (lower.startsWith("jarvis:") || lower.startsWith("raajarvis:")) return;
       appendLog(msg.text);
+      if (lower.includes("youtube")) pushRecent("YouTube");
+      else if (lower.includes("whatsapp")) pushRecent("WhatsApp");
     }
     if (msg.type === "state") setState(msg.value);
     if (msg.type === "speech") {
@@ -688,34 +783,8 @@ async function uploadFile(file) {
   });
   if (!res.ok) throw new Error("upload failed");
   const data = await res.json();
-  if (file.type.startsWith("image/") || data.is_image) {
-    pendingWallpaperUrl = URL.createObjectURL(file);
-    if (wallpaperImg) wallpaperImg.src = pendingWallpaperUrl;
-    wallpaperPreview?.classList.remove("hidden");
-  }
+  if (data.name) pushRecent(data.name);
   return data;
-}
-
-function applyWallpaper(url) {
-  if (!url || !stageEl) return;
-  stageEl.style.backgroundImage = `linear-gradient(rgba(6,13,24,0.55), rgba(6,13,24,0.55)), url(${url})`;
-  stageEl.style.backgroundSize = "cover";
-  stageEl.style.backgroundPosition = "center";
-  document.body.classList.add("hud-wallpaper");
-  try {
-    localStorage.setItem(WALLPAPER_KEY, url);
-  } catch {
-    /* ignore quota */
-  }
-}
-
-function loadWallpaper() {
-  try {
-    const url = localStorage.getItem(WALLPAPER_KEY);
-    if (url) applyWallpaper(url);
-  } catch {
-    /* ignore */
-  }
 }
 
 async function clearFile() {
@@ -782,7 +851,7 @@ function vadLoop() {
     vadSpeechSeen = true;
   } else if (vadRecording && vadSpeechSeen) {
     if (!vadSilenceSince) vadSilenceSince = now;
-    if (now - vadSilenceSince > 700) {
+    if (now - vadSilenceSince > 1500) {
       stopVadRecording();
       vadSpeechSeen = false;
       vadSilenceSince = 0;
@@ -790,6 +859,48 @@ function vadLoop() {
   }
 
   vadFrame = requestAnimationFrame(vadLoop);
+}
+
+function watchMicStream() {
+  if (!vadStream) return;
+  for (const track of vadStream.getAudioTracks()) {
+    track.onended = () => {
+      if (voiceActive && !muted) {
+        appendLog("SYS: Mic reconnecting…");
+        reactivateVoice();
+      }
+    };
+  }
+}
+
+async function reactivateVoice() {
+  const wasActive = voiceActive;
+  deactivateVoice();
+  if (wasActive) {
+    await new Promise((r) => setTimeout(r, 400));
+    await activateVoice();
+  }
+}
+
+function startMicKeepAlive() {
+  stopMicKeepAlive();
+  micKeepAliveTimer = setInterval(async () => {
+    if (!voiceActive || muted) return;
+    if (vadCtx?.state === "suspended") {
+      try { await vadCtx.resume(); } catch { /* ignore */ }
+    }
+    const tracks = vadStream?.getAudioTracks() || [];
+    if (!tracks.length || tracks[0].readyState === "ended") {
+      await reactivateVoice();
+      return;
+    }
+    if (!vadFrame && voiceActive && !jarvisSpeaking) vadLoop();
+  }, 8000);
+}
+
+function stopMicKeepAlive() {
+  if (micKeepAliveTimer) clearInterval(micKeepAliveTimer);
+  micKeepAliveTimer = null;
 }
 
 async function activateVoice() {
@@ -800,12 +911,16 @@ async function activateVoice() {
       audio: { echoCancellation: true, noiseSuppression: true },
     });
     vadCtx = new AudioContext();
+    await vadCtx.resume().catch(() => {});
     const source = vadCtx.createMediaStreamSource(vadStream);
     vadAnalyser = vadCtx.createAnalyser();
     vadAnalyser.fftSize = 1024;
     source.connect(vadAnalyser);
     voiceActive = true;
-    appendLog("SYS: Voice on — speak anytime.");
+    sessionStorage.setItem(VOICE_ACTIVE_KEY, "1");
+    watchMicStream();
+    startMicKeepAlive();
+    appendLog("SYS: Mic on — stays active until you tap mic again.");
     setState("LISTENING");
     updateMicState();
     vadLoop();
@@ -819,6 +934,8 @@ async function activateVoice() {
 
 function deactivateVoice() {
   voiceActive = false;
+  sessionStorage.removeItem(VOICE_ACTIVE_KEY);
+  stopMicKeepAlive();
   if (vadFrame) cancelAnimationFrame(vadFrame);
   vadFrame = null;
   stopVadRecording();
@@ -832,7 +949,7 @@ function deactivateVoice() {
   }
   vadAnalyser = null;
   updateMicState();
-  appendLog("SYS: Voice session ended.");
+  appendLog("SYS: Mic off.");
 }
 
 async function refreshMetrics() {
@@ -895,28 +1012,27 @@ async function refreshStatus() {
   if (!base) return;
   try {
     const data = await testBackend(base);
-    if (data.model && modelLabel) modelLabel.textContent = data.model;
+    updateModelDisplay(data);
     setConn(true);
-    if (stateChip) stateChip.classList.add("online");
     const st = data.state || "READY";
     setState(st);
-    if (statusHint) statusHint.textContent = `Ollama online · ${data.model || "ready"}`;
+    if (statusHint) {
+      statusHint.textContent = `Ollama · ${data.model || "ready"}`;
+      statusHint.classList.remove("hidden");
+    }
     if (data.file_name) {
-      fileHint.textContent = `📎 ${data.file_name}`;
+      fileHint.textContent = data.file_name;
       clearFileBtn.classList.remove("hidden");
+      pushRecent(data.file_name);
     }
     await refreshMetrics();
     await loadMemory();
     await loadReminders();
   } catch {
     setConn(false);
-    if (modelLabel) modelLabel.textContent = "Mac offline";
-    if (statusHint) statusHint.textContent = "Cannot reach Mac — is jarvis-stack running?";
+    updateModelDisplay({ ok: false });
+    if (statusHint) statusHint.textContent = "Mac offline — start jarvis-stack";
     setHeroMode("OFFLINE");
-    if (stateChip) {
-      stateChip.textContent = "OFFLINE";
-      stateChip.classList.add("offline");
-    }
   }
 }
 
@@ -935,8 +1051,9 @@ function renderRemindersList(serverItems = []) {
   if (!merged.length) {
     const li = document.createElement("li");
     li.className = "reminder-empty";
-    li.textContent = "No upcoming reminders";
+    li.textContent = "No reminders";
     remindersList.appendChild(li);
+    updateTimerUi(0);
     return;
   }
   for (const item of merged.slice(0, 8)) {
@@ -949,6 +1066,7 @@ function renderRemindersList(serverItems = []) {
     li.appendChild(document.createTextNode(item.message || "Reminder"));
     remindersList.appendChild(li);
   }
+  updateTimerUi(merged.length);
 }
 
 async function loadReminders() {
@@ -966,26 +1084,30 @@ async function loadReminders() {
     }
   }
   renderRemindersList(serverItems);
+  updateTimerUi(
+    serverItems.length + loadLocalAlarms().length
+  );
 }
 
 function openSettings() {
   if (settingsBackendUrl) settingsBackendUrl.value = apiBase();
   loadSettingsFromBackend();
   settingsSidebar?.classList.remove("hidden");
-  rightRail?.classList.add("hidden");
   if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "false");
 }
 
 function closeSettings() {
   settingsSidebar?.classList.add("hidden");
-  rightRail?.classList.remove("hidden");
   if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "true");
 }
 
 function tickClock() {
-  const now = new Date().toLocaleTimeString([], { hour12: false });
-  if (clockEl) clockEl.textContent = now;
-  if (clockDisplay) clockDisplay.textContent = now;
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }).toUpperCase();
+  if (clockEl) clockEl.textContent = now.toLocaleTimeString([], { hour12: false });
+  if (todayTime) todayTime.textContent = timeStr;
+  if (todayDate) todayDate.textContent = dateStr;
 }
 
 // Events
@@ -1035,11 +1157,8 @@ settingsBtn.addEventListener("click", () => openSettings());
 
 $("#closeSettingsBtn").addEventListener("click", () => closeSettings());
 
-setWallpaperBtn?.addEventListener("click", () => {
-  if (pendingWallpaperUrl) {
-    applyWallpaper(pendingWallpaperUrl);
-    appendLog("SYS: HUD wallpaper set.");
-  }
+chatToggleBtn?.addEventListener("click", () => {
+  logPanel?.classList.toggle("hidden");
 });
 
 $("#saveSettingsBtn").addEventListener("click", async () => {
@@ -1125,11 +1244,15 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && apiBase()) {
     connectWs();
     refreshStatus();
+    if (voiceActive) {
+      if (vadCtx?.state === "suspended") vadCtx.resume().catch(() => {});
+      if (!vadFrame) vadLoop();
+    }
   }
 });
 
 async function boot() {
-  loadWallpaper();
+  renderRecentApps();
   localAlarmItems = loadLocalAlarms();
   renderRemindersList();
 
@@ -1159,6 +1282,9 @@ async function boot() {
       loadSettingsFromBackend();
       setInterval(refreshMetrics, 8000);
       setInterval(loadReminders, 30000);
+      if (sessionStorage.getItem(VOICE_ACTIVE_KEY) === "1") {
+        setTimeout(() => activateVoice(), 800);
+      }
     }
     return;
   }

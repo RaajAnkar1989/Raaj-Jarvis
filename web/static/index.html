@@ -3,25 +3,25 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <meta name="theme-color" content="#061018" />
+  <meta name="theme-color" content="#000610" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Raajarvis" />
-  <meta name="description" content="Raajarvis — Raaj's personal AI assistant" />
+  <meta name="apple-mobile-web-app-title" content="JARVIS" />
+  <meta name="description" content="JARVIS — personal AI assistant" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/face.png" />
   <link rel="stylesheet" href="/styles.css" />
-  <title>Raajarvis</title>
+  <title>JARVIS</title>
   <script src="/discovery.js"></script>
   <script src="/config.js"></script>
 </head>
 <body>
   <div id="setupOverlay" class="overlay hidden">
-    <div class="modal scroll-modal">
-      <h2>Connect Raajarvis</h2>
-      <p class="modal-sub">Your Mac runs the AI. This app auto-connects when your Mac is on.</p>
-      <label class="field-label" for="backendUrl">Backend URL (optional)</label>
+    <div class="modal">
+      <h2>Connect JARVIS Core</h2>
+      <p class="modal-sub">Your Mac runs Ollama. This app auto-connects when your Mac is on.</p>
+      <label class="field-label" for="backendUrl">Backend URL</label>
       <input id="backendUrl" type="url" placeholder="https://…" />
       <div class="modal-actions">
         <button id="saveBackendBtn" type="button" class="primary">Connect</button>
@@ -31,117 +31,177 @@
   </div>
 
   <div class="app">
-    <header class="header">
-      <div class="brand">
-        <h1>Raajarvis</h1>
-        <span id="modelLabel" class="model-tag">…</span>
+    <div class="grid-bg" aria-hidden="true"></div>
+
+    <header class="top-bar">
+      <div class="title-block">
+        <h1>JARVIS</h1>
+        <p id="brainHint">Connecting…</p>
       </div>
-      <div class="header-right">
+      <div class="top-actions">
         <span id="connDot" class="conn-dot offline"></span>
-        <span id="stateChip" class="state-chip">CONNECT</span>
-        <span id="clockDisplay" class="hdr-clock">--:--</span>
+        <button id="chatToggleBtn" class="icon-btn" type="button" aria-label="Chat log">💬</button>
         <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
       </div>
     </header>
 
-    <div class="split">
-      <section class="stage" id="stage">
-        <div class="orb-wrap" id="heroHud">
-          <div class="orb-ring ring-1"></div>
-          <div class="orb-ring ring-2"></div>
-          <div class="orb-ring ring-3"></div>
-          <img class="orb-core" src="/icons/jarvis-hero.svg" alt="Raajarvis" width="120" height="120" />
-          <span class="orb-pulse"></span>
+    <main class="hud-grid">
+      <aside class="col-left">
+        <section class="widget">
+          <h3>SYSTEM</h3>
+          <div class="metric-line">
+            <span>BATTERY</span>
+            <div class="bar"><div id="barBatt" class="fill batt"></div></div>
+            <em id="battVal">—</em>
+          </div>
+          <div class="metric-line">
+            <span>MEMORY</span>
+            <div class="bar"><div id="barMem" class="fill mem"></div></div>
+            <em id="memVal">—</em>
+          </div>
+          <div class="metric-line">
+            <span>TIMERS</span>
+            <div class="bar"><div id="barTimers" class="fill timers"></div></div>
+            <em id="timerCount">0</em>
+          </div>
+          <div class="metric-line">
+            <span>SESSION</span>
+            <div class="bar"><div id="barSession" class="fill session"></div></div>
+            <em id="sessionVal">Idle</em>
+          </div>
+          <div class="metric-line hidden-metric">
+            <span>CPU</span>
+            <div class="bar"><div id="barCpu" class="fill"></div></div>
+            <em id="cpuVal">—</em>
+          </div>
+          <div class="metric-line hidden-metric">
+            <span>DISK</span>
+            <div class="bar"><div id="barDisk" class="fill disk"></div></div>
+            <em id="diskVal">—</em>
+          </div>
+        </section>
+
+        <section class="widget">
+          <h3>RECENT APPS</h3>
+          <ul id="recentApps" class="recent-list">
+            <li class="empty">No recent activity</li>
+          </ul>
+          <div id="fileZone" class="file-zone">
+            <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg,.webp,.gif" />
+            <p id="fileHint">Tap to upload file</p>
+            <button id="clearFileBtn" class="ghost tiny hidden" type="button">Clear</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="col-center">
+        <div id="hud" class="hud" aria-live="polite">
+          <div class="hud-ring ring-1"></div>
+          <div class="hud-ring ring-2"></div>
+          <div class="hud-ring ring-3"></div>
+          <div class="hud-dots"><span></span><span></span><span></span><span></span><span></span></div>
+          <img id="faceImg" class="hud-face" src="/icons/face.png" alt="" />
+          <div class="hud-core">
+            <span id="stateLabel">OFFLINE</span>
+          </div>
         </div>
-        <p id="heroState" class="orb-state">STANDBY</p>
-        <p id="voiceModeLabel" class="orb-hint">Tap mic or type below</p>
-        <div id="log" class="log-compact"></div>
+        <p id="activateHint" class="activate-hint">TAP TO ACTIVATE</p>
+        <button id="micBtn" class="mic-orb" type="button" aria-label="Microphone">
+          <span class="mic-glyph">🎤</span>
+        </button>
+        <p id="micNote" class="mic-note">TAP MIC · ALLOW MICROPHONE WHEN ASKED</p>
+        <p id="statusHint" class="status-hint hidden"></p>
+        <div id="logPanel" class="log-panel hidden">
+          <div id="log" class="log"></div>
+        </div>
       </section>
 
-      <aside class="right-rail" id="rightRail">
-        <div class="rail-row">
-          <div class="rail-cell system-cell">
-            <h4>System</h4>
-            <div class="mini-metrics">
-              <span>CPU <em id="cpuVal">—</em></span>
-              <span>RAM <em id="memVal">—</em></span>
-              <span>Disk <em id="diskVal">—</em></span>
-              <span>Batt <em id="battVal">—</em></span>
-            </div>
-            <div class="bar micro"><div id="barCpu" class="fill"></div></div>
-            <div class="bar micro mem"><div id="barMem" class="fill mem"></div></div>
-            <div class="bar micro disk"><div id="barDisk" class="fill disk"></div></div>
-            <div class="bar micro batt"><div id="barBatt" class="fill batt"></div></div>
-          </div>
-          <div class="rail-cell files-cell">
-            <h4>Files</h4>
-            <div id="fileZone" class="file-zone mini">
-              <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg,.webp,.gif" />
-              <p id="fileHint">Tap upload</p>
-              <button id="clearFileBtn" class="ghost tiny hidden" type="button">✕</button>
-            </div>
-            <div id="wallpaperPreview" class="wallpaper-preview hidden">
-              <img id="wallpaperImg" alt="" />
-              <button id="setWallpaperBtn" type="button" class="ghost tiny">HUD bg</button>
-            </div>
-          </div>
-        </div>
-        <div class="rail-block">
-          <h4>Timers &amp; Reminders</h4>
+      <aside class="col-right">
+        <section class="widget today-widget">
+          <h3>TODAY</h3>
+          <div id="todayTime" class="today-time">--:--</div>
+          <div id="todayDate" class="today-date">—</div>
+          <p class="today-sub">Weather · Calendar — connect in settings</p>
+        </section>
+
+        <section class="widget">
+          <h3>INBOX &amp; TASKS</h3>
+          <p class="inbox-row"><span>UNREAD MAIL</span><em>All caught up</em></p>
+          <p class="inbox-row"><span>OPEN TASKS</span><em id="taskCount">No open tasks</em></p>
           <ul id="remindersList" class="reminders-list">
-            <li class="reminder-empty">None set</li>
+            <li class="reminder-empty">No reminders</li>
           </ul>
-        </div>
-        <p id="memoryHint" class="memory-hint">Session saved on this device</p>
-      </aside>
+        </section>
 
-      <aside id="settingsSidebar" class="settings-panel hidden" aria-hidden="true">
-        <div class="panel-head">
-          <h2>Settings</h2>
-          <button id="closeSettingsBtn" type="button" class="icon-btn">✕</button>
-        </div>
-        <div class="panel-body scroll-modal">
-          <label class="field-label" for="settingsVoice">Voice</label>
-          <select id="settingsVoice">
-            <option value="en-US-AndrewMultilingualNeural">Andrew</option>
-            <option value="en-US-JennyNeural">Jenny</option>
-            <option value="en-US-AriaNeural">Aria</option>
-            <option value="en-US-GuyNeural">Guy</option>
-          </select>
-          <label class="field-label" for="settingsPersonality">Personality</label>
-          <select id="settingsPersonality">
-            <option value="professional">Professional</option>
-            <option value="happy">Happy mode</option>
-          </select>
-          <label class="field-label" for="settingsSpeed">Speech speed</label>
-          <input id="settingsSpeed" type="range" min="0" max="30" value="12" />
-          <p class="modal-hint" id="speedLabel">Faster (+12%)</p>
-          <label class="field-label" for="settingsBackendUrl">Backend URL</label>
-          <input id="settingsBackendUrl" type="url" placeholder="Auto" />
-          <p class="modal-hint" id="settingsStatus">Ready</p>
-        </div>
-        <button id="saveSettingsBtn" type="button" class="primary panel-save">Save</button>
+        <section class="widget">
+          <h3>QUICK COMMANDS</h3>
+          <ul class="quick-cmds">
+            <li>Say: open WhatsApp</li>
+            <li>Say: Jarvis, set a 5 minute timer</li>
+            <li>Say: Jarvis, what time is it</li>
+          </ul>
+        </section>
       </aside>
-    </div>
+    </main>
 
-    <footer class="footer">
-      <p id="statusHint" class="footer-hint">Connecting…</p>
+    <footer class="footer compact">
       <form id="chatForm" class="input-row">
-        <input id="chatInput" type="text" placeholder="Ask Raajarvis…" autocomplete="off" enterkeyhint="send" />
+        <input id="chatInput" type="text" placeholder="Type to JARVIS…" autocomplete="off" enterkeyhint="send" />
         <button id="sendBtn" type="submit" aria-label="Send">▸</button>
       </form>
-      <div class="controls">
-        <button id="micBtn" class="mic" type="button"><span id="micLabel">Mic</span></button>
-        <button id="stopBtn" class="ghost stop-btn hidden" type="button">Stop</button>
-        <button id="muteBtn" class="ghost compact-btn" type="button">Mic on</button>
-      </div>
+      <button id="stopBtn" class="ghost stop-btn hidden" type="button">Stop speaking</button>
+      <button id="muteBtn" class="ghost tiny hidden" type="button">Mic on</button>
     </footer>
   </div>
 
+  <aside id="settingsSidebar" class="settings-drawer hidden" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Settings</h2>
+      <button id="closeSettingsBtn" class="icon-btn" type="button">✕</button>
+    </div>
+    <div class="drawer-body scroll-modal">
+      <div class="model-box">
+        <h4>Local LLM</h4>
+        <p><span>Model</span><strong id="settingsModel">—</strong></p>
+        <p><span>Provider</span><strong id="settingsProvider">Ollama</strong></p>
+        <p><span>Status</span><strong id="settingsConn">Offline</strong></p>
+        <p class="model-tag-line"><span id="modelLabel">—</span></p>
+      </div>
+
+      <label class="field-label" for="settingsVoice">Voice</label>
+      <select id="settingsVoice">
+        <option value="en-US-AndrewMultilingualNeural">Andrew</option>
+        <option value="en-US-JennyNeural">Jenny</option>
+        <option value="en-US-AriaNeural">Aria</option>
+        <option value="en-US-GuyNeural">Guy</option>
+      </select>
+
+      <label class="field-label" for="settingsPersonality">Personality</label>
+      <select id="settingsPersonality">
+        <option value="professional">Professional</option>
+        <option value="happy">Happy mode</option>
+      </select>
+
+      <label class="field-label" for="settingsSpeed">Speech speed</label>
+      <input id="settingsSpeed" type="range" min="0" max="30" value="12" />
+      <p class="modal-hint" id="speedLabel">Faster (+12%)</p>
+
+      <label class="field-label" for="settingsBackendUrl">Backend URL</label>
+      <input id="settingsBackendUrl" type="url" placeholder="Auto-connected" />
+      <p class="modal-hint" id="settingsStatus">Ready</p>
+      <p id="memoryHint" class="memory-hint">Session saved on this device</p>
+    </div>
+    <button id="saveSettingsBtn" type="button" class="primary drawer-save">Save</button>
+  </aside>
+
   <span id="backendLabel" class="hidden"></span>
   <span id="clock" class="hidden"></span>
+  <span id="clockDisplay" class="hidden"></span>
+  <span id="stateChip" class="hidden"></span>
+  <span id="voiceModeLabel" class="hidden"></span>
+  <span id="heroState" class="hidden"></span>
   <span id="installBtn" class="hidden"></span>
-  <div id="hud" class="hidden"><span id="stateLabel">OFFLINE</span></div>
+  <span id="micLabel" class="hidden"></span>
   <input id="gmailClientId" type="hidden" />
   <input id="gmailClientSecret" type="hidden" />
   <input id="gmailRefreshToken" type="hidden" />
