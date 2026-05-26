@@ -1,2 +1,2 @@
 # Proxy API through Netlify — OAuth + REST (WebSocket still uses tunnel discovery)
-/api/*  https://forestry-prison-flooring-inventory.trycloudflare.com/api/:splat  200
+/api/*  https://concerts-sanyo-controlled-emissions.trycloudflare.com/api/:splat  200
