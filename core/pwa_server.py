@@ -28,6 +28,12 @@ except ImportError:
 
     def save_gmail_credentials(*_a, **_k) -> None:
         pass
+
+try:
+    from actions.reminder import list_reminders
+except ImportError:
+    def list_reminders(*_a, **_k) -> list:
+        return []
 from core.client_memory import load_client_memory, remember
 from core.file_index import index_file
 from core.llm_config import load_llm_config, save_llm_config
@@ -267,6 +273,11 @@ async def tunnel_info():
             else None
         ),
     }
+
+
+@app.get("/api/reminders")
+async def get_reminders():
+    return {"reminders": list_reminders(include_past=False)}
 
 
 @app.get("/api/config")

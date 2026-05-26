@@ -33,7 +33,8 @@ const fileInput = $("#fileInput");
 const fileHint = $("#fileHint");
 const clearFileBtn = $("#clearFileBtn");
 const setupOverlay = $("#setupOverlay");
-const settingsOverlay = $("#settingsOverlay");
+const settingsSidebar = $("#settingsSidebar");
+const sidebarBackdrop = $("#sidebarBackdrop");
 const backendUrlInput = $("#backendUrl");
 const settingsBackendUrl = $("#settingsBackendUrl");
 const setupError = $("#setupError");
@@ -46,6 +47,10 @@ const cpuVal = $("#cpuVal");
 const memVal = $("#memVal");
 const diskVal = $("#diskVal");
 const battVal = $("#battVal");
+const heroHud = $("#heroHud");
+const heroState = $("#heroState");
+const clockDisplay = $("#clockDisplay");
+const remindersList = $("#remindersList");
 
 const STORAGE_KEY = "jarvis_api";
 const CLIENT_KEY = "jarvis_client_id";
@@ -56,6 +61,29 @@ let heartbeatTimer = null;
 let lastPong = Date.now();
 let reconnectAttempts = 0;
 const scheduledAlarms = new Map();
+let localAlarmItems = [];
+
+function loadLocalAlarms() {
+  try {
+    return JSON.parse(localStorage.getItem(ALARM_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalAlarms(items) {
+  localAlarmItems = items;
+  localStorage.setItem(ALARM_KEY, JSON.stringify(items.slice(-30)));
+  renderRemindersList();
+}
+
+function upsertLocalAlarm(date, time, message) {
+  const items = loadLocalAlarms().filter(
+    (a) => !(a.date === date && a.time === time && a.message === message)
+  );
+  items.push({ date, time, message, source: "phone" });
+  saveLocalAlarms(items);
+}
 
 function loadPrefs() {
   try {
@@ -180,6 +208,7 @@ function schedulePhoneAlarm(date, time, message) {
     }
   }, ms);
   scheduledAlarms.set(id, timer);
+  upsertLocalAlarm(date, time, message);
   appendLog(`SYS: Phone alarm set for ${date} ${time}`);
 }
 
@@ -341,12 +370,34 @@ function appendLog(text) {
 function setConn(ok) {
   connDot.className = "conn-dot " + (ok ? "online" : "offline");
   connDot.title = ok ? "Connected to backend" : "Backend offline";
+  if (stateChip) {
+    stateChip.classList.toggle("online", ok);
+    stateChip.classList.toggle("offline", !ok);
+    if (!ok && stateChip.textContent !== "SPEAKING" && stateChip.textContent !== "LISTENING") {
+      stateChip.textContent = ok ? "ONLINE" : "OFFLINE";
+    }
+  }
+  if (heroHud) {
+    heroHud.classList.toggle("online", ok);
+    if (!ok && heroState) heroState.textContent = "OFFLINE";
+  }
+}
+
+function setHeroMode(state) {
+  if (!heroHud) return;
+  heroHud.classList.remove("speaking", "listening", "thinking");
+  const s = (state || "").toUpperCase();
+  if (s === "SPEAKING") heroHud.classList.add("speaking");
+  else if (s === "LISTENING" || s === "RECORDING") heroHud.classList.add("listening");
+  else if (s === "THINKING") heroHud.classList.add("thinking");
+  if (heroState) heroState.textContent = s || "STANDBY";
 }
 
 function setState(state) {
-  const label = state || "OFFLINE";
+  const label = state || "STANDBY";
   if (stateLabel) stateLabel.textContent = label;
   if (stateChip) stateChip.textContent = label;
+  setHeroMode(label);
 
   if (label === "SPEAKING") {
     jarvisSpeaking = true;
@@ -453,7 +504,7 @@ async function saveBackend(url) {
   localStorage.setItem(STORAGE_KEY, clean);
   if (data.model) modelLabel.textContent = data.model;
   setupOverlay.classList.add("hidden");
-  settingsOverlay.classList.add("hidden");
+  closeSettings();
   connectWs();
   refreshStatus();
   return data;
@@ -488,6 +539,9 @@ function connectWs() {
     lastPong = Date.now();
     setConn(true);
     appendLog("SYS: Connected to Raajarvis.");
+    if (!logEl.querySelector(".ai")) {
+      appendLog("Raajarvis: Iron HUD active. I'm online whenever your Mac is running.");
+    }
     ws.send(JSON.stringify({ type: "register", client_id: clientId() }));
     ws.send(JSON.stringify({ type: "ping" }));
     if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -519,6 +573,7 @@ function connectWs() {
     if (msg.type === "interrupted") interruptJarvis();
     if (msg.type === "alarm") {
       schedulePhoneAlarm(msg.date, msg.time, msg.message);
+      loadReminders();
     }
     if (msg.type === "muted") {
       muted = !!msg.value;
@@ -791,23 +846,97 @@ async function refreshStatus() {
   if (!base) return;
   try {
     const data = await testBackend(base);
-    if (data.model) modelLabel.textContent = data.model;
+    if (data.model && modelLabel) modelLabel.textContent = data.model;
     setConn(true);
-    if (data.state) setState(data.state);
+    if (stateChip) stateChip.classList.add("online");
+    const st = data.state || "READY";
+    setState(st);
+    if (statusHint) statusHint.textContent = `Ollama online · ${data.model || "ready"}`;
     if (data.file_name) {
       fileHint.textContent = `📎 ${data.file_name}`;
       clearFileBtn.classList.remove("hidden");
     }
     await refreshMetrics();
     await loadMemory();
+    await loadReminders();
   } catch {
     setConn(false);
-    modelLabel.textContent = "—";
+    if (modelLabel) modelLabel.textContent = "Mac offline";
+    if (statusHint) statusHint.textContent = "Cannot reach Mac — is jarvis-stack running?";
+    setHeroMode("OFFLINE");
+    if (stateChip) {
+      stateChip.textContent = "OFFLINE";
+      stateChip.classList.add("offline");
+    }
   }
 }
 
+function renderRemindersList(serverItems = []) {
+  if (!remindersList) return;
+  const merged = [];
+  const seen = new Set();
+  for (const item of [...serverItems, ...loadLocalAlarms()]) {
+    const key = `${item.date}|${item.time}|${item.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  merged.sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+  remindersList.innerHTML = "";
+  if (!merged.length) {
+    const li = document.createElement("li");
+    li.className = "reminder-empty";
+    li.textContent = "No upcoming reminders";
+    remindersList.appendChild(li);
+    return;
+  }
+  for (const item of merged.slice(0, 8)) {
+    const li = document.createElement("li");
+    if (item.source === "phone") li.classList.add("phone");
+    const time = document.createElement("span");
+    time.className = "rem-time";
+    time.textContent = `${item.date} ${item.time}`;
+    li.appendChild(time);
+    li.appendChild(document.createTextNode(item.message || "Reminder"));
+    remindersList.appendChild(li);
+  }
+}
+
+async function loadReminders() {
+  const base = apiBase();
+  let serverItems = [];
+  if (base) {
+    try {
+      const res = await fetch(`${base}/api/reminders`, { headers: apiHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        serverItems = data.reminders || [];
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  renderRemindersList(serverItems);
+}
+
+function openSettings() {
+  if (settingsBackendUrl) settingsBackendUrl.value = apiBase();
+  loadSettingsFromBackend();
+  settingsSidebar?.classList.add("open");
+  sidebarBackdrop?.classList.remove("hidden");
+  if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "false");
+}
+
+function closeSettings() {
+  settingsSidebar?.classList.remove("open");
+  sidebarBackdrop?.classList.add("hidden");
+  if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "true");
+}
+
 function tickClock() {
-  clockEl.textContent = new Date().toLocaleTimeString([], { hour12: false });
+  const now = new Date().toLocaleTimeString([], { hour12: false });
+  if (clockEl) clockEl.textContent = now;
+  if (clockDisplay) clockDisplay.textContent = now;
 }
 
 // Events
@@ -847,15 +976,10 @@ muteBtn.addEventListener("click", () => {
   }
 });
 
-settingsBtn.addEventListener("click", () => {
-  if (settingsBackendUrl) settingsBackendUrl.value = apiBase();
-  loadSettingsFromBackend();
-  settingsOverlay.classList.remove("hidden");
-});
+settingsBtn.addEventListener("click", () => openSettings());
 
-$("#closeSettingsBtn").addEventListener("click", () => {
-  settingsOverlay.classList.add("hidden");
-});
+$("#closeSettingsBtn").addEventListener("click", () => closeSettings());
+sidebarBackdrop?.addEventListener("click", () => closeSettings());
 
 $("#saveSettingsBtn").addEventListener("click", async () => {
   try {
@@ -864,7 +988,7 @@ $("#saveSettingsBtn").addEventListener("click", async () => {
       await saveBackend(settingsBackendUrl.value);
     }
     $("#settingsStatus").textContent = "Saved";
-    settingsOverlay.classList.add("hidden");
+    closeSettings();
     appendLog("SYS: Settings saved.");
   } catch (e) {
     $("#settingsStatus").textContent = e.message || "Save failed";
@@ -944,12 +1068,35 @@ document.addEventListener("visibilitychange", () => {
 });
 
 async function boot() {
+  localAlarmItems = loadLocalAlarms();
+  renderRemindersList();
+
+  if (window.__JARVIS_DISCOVERY__?.url && !isAutoConnect()) {
+    const fresh = await discoverBackend();
+    if (fresh) {
+      const saved = savedApi();
+      if (saved !== fresh) {
+        localStorage.setItem(STORAGE_KEY, fresh);
+      }
+    } else {
+      const saved = savedApi();
+      if (saved) {
+        try {
+          await testBackend(saved);
+        } catch {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    }
+  }
+
   if (isAutoConnect() || apiBase()) {
     if (!showSetupIfNeeded()) {
       connectWs();
       refreshStatus();
       loadSettingsFromBackend();
       setInterval(refreshMetrics, 8000);
+      setInterval(loadReminders, 30000);
     }
     return;
   }

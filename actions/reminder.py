@@ -28,6 +28,53 @@ def _scripts_dir() -> Path:
     return d
 
 
+def _schedule_index() -> Path:
+    return _scripts_dir() / "scheduled.json"
+
+
+def record_reminder(date_str: str, time_str: str, message: str, task_name: str = "") -> None:
+    path = _schedule_index()
+    try:
+        items = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except Exception:
+        items = []
+    items.append({
+        "date": date_str,
+        "time": time_str,
+        "message": message,
+        "task": task_name,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    })
+    items = sorted(
+        items,
+        key=lambda x: f"{x.get('date', '')} {x.get('time', '')}",
+    )
+    path.write_text(json.dumps(items[-50:], indent=2), encoding="utf-8")
+
+
+def list_reminders(include_past: bool = False) -> list[dict]:
+    path = _schedule_index()
+    if not path.exists():
+        return []
+    try:
+        items = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    now = datetime.now()
+    out: list[dict] = []
+    for item in items:
+        try:
+            when = datetime.strptime(
+                f"{item.get('date', '')} {item.get('time', '')}", "%Y-%m-%d %H:%M"
+            )
+        except ValueError:
+            continue
+        if not include_past and when <= now:
+            continue
+        out.append({**item, "when_iso": when.isoformat(timespec="seconds")})
+    return out
+
+
 def _sanitise(text: str, max_len: int = 200) -> str:
     return (
         text.replace("\\", "")
@@ -324,6 +371,11 @@ def reminder(
 
     if not job_id:
         return "I couldn't register the reminder with the system scheduler."
+
+    try:
+        record_reminder(date_str, time_str, safe_msg, task_name)
+    except Exception:
+        pass
 
     if player:
         player.write_log(f"[Reminder] ✅ {date_str} {time_str} — {safe_msg[:40]}")

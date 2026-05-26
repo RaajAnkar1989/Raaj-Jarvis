@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <meta name="theme-color" content="#5eb3ff" />
+  <meta name="theme-color" content="#061018" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Raajarvis" />
   <meta name="description" content="Raajarvis — Raaj's personal AI assistant" />
   <link rel="manifest" href="/manifest.json" />
@@ -33,10 +33,13 @@
     </div>
   </div>
 
-  <div id="settingsOverlay" class="overlay hidden">
-    <div class="modal scroll-modal">
+  <div id="sidebarBackdrop" class="sidebar-backdrop hidden"></div>
+  <aside id="settingsSidebar" class="settings-sidebar" aria-hidden="true">
+    <div class="sidebar-head">
       <h2>Settings</h2>
-
+      <button id="closeSettingsBtn" type="button" class="icon-btn" aria-label="Close settings">✕</button>
+    </div>
+    <div class="sidebar-body scroll-modal">
       <label class="field-label" for="settingsVoice">Voice</label>
       <select id="settingsVoice">
         <option value="en-US-AndrewMultilingualNeural">Andrew (default)</option>
@@ -76,56 +79,76 @@
       </details>
 
       <p class="modal-hint" id="settingsStatus">Connected</p>
-      <div class="modal-actions">
-        <button id="saveSettingsBtn" type="button" class="primary">Save</button>
-        <button id="closeSettingsBtn" type="button" class="ghost">Close</button>
-      </div>
     </div>
-  </div>
+    <div class="sidebar-foot">
+      <button id="saveSettingsBtn" type="button" class="primary">Save</button>
+    </div>
+  </aside>
 
   <div class="app">
     <header class="header">
       <div class="brand">
-        <div class="arc"></div>
+        <img class="brand-icon" src="/icons/jarvis-hero.svg" alt="" width="36" height="36" />
         <div>
           <h1>Raajarvis</h1>
-          <p>Raaj's personal assistant</p>
+          <p>Iron HUD · personal assistant</p>
         </div>
       </div>
       <div class="header-right">
         <span id="connDot" class="conn-dot offline" title="Connection"></span>
-        <span id="stateChip" class="state-chip">OFFLINE</span>
+        <span id="stateChip" class="state-chip">CONNECTING</span>
         <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
       </div>
     </header>
 
-    <div class="status-bar">
-      <span id="modelLabel">—</span>
-      <span id="voiceModeLabel">Tap mic to talk</span>
-    </div>
+    <section class="hero-hud" id="heroHud">
+      <div class="hero-reactor" id="heroReactor">
+        <img src="/icons/jarvis-hero.svg" alt="Raajarvis arc reactor" width="88" height="88" />
+        <span class="reactor-pulse"></span>
+      </div>
+      <div class="hero-meta">
+        <span id="heroState" class="hero-state">STANDBY</span>
+        <span id="modelLabel" class="hero-model">Connecting…</span>
+        <span id="clockDisplay" class="hero-clock">--:--:--</span>
+      </div>
+      <span id="voiceModeLabel" class="hero-voice">Tap mic to talk</span>
+    </section>
 
-    <main class="main">
-      <section class="log-panel">
+    <div class="workspace">
+      <main class="chat-area">
         <div id="log" class="log"></div>
-      </section>
+      </main>
 
-      <details class="extras-panel">
-        <summary>System &amp; files</summary>
-        <div class="extras-inner">
+      <aside class="dashboard">
+        <section class="dash-card system-card">
+          <h3>System</h3>
           <div class="metric-bars compact">
             <div class="bar-row"><span>CPU</span><div class="bar"><div id="barCpu" class="fill"></div></div><em id="cpuVal">—</em></div>
             <div class="bar-row"><span>RAM</span><div class="bar"><div id="barMem" class="fill mem"></div></div><em id="memVal">—</em></div>
+            <div class="bar-row"><span>Disk</span><div class="bar"><div id="barDisk" class="fill disk"></div></div><em id="diskVal">—</em></div>
             <div class="bar-row"><span>Batt</span><div class="bar"><div id="barBatt" class="fill batt"></div></div><em id="battVal">—</em></div>
           </div>
           <div id="memoryHint" class="memory-hint">Memory: none yet</div>
+        </section>
+
+        <section class="dash-card files-card">
+          <h3>Files</h3>
           <div id="fileZone" class="file-zone">
             <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg" />
             <p id="fileHint">Tap to upload a file</p>
             <button id="clearFileBtn" class="ghost small hidden" type="button">Clear</button>
           </div>
-        </div>
-      </details>
-    </main>
+        </section>
+
+        <section class="dash-card schedule-card">
+          <h3>Timers &amp; Reminders</h3>
+          <p id="timerHint" class="timer-hint">Live clock above · alarms appear here</p>
+          <ul id="remindersList" class="reminders-list">
+            <li class="reminder-empty">No upcoming reminders</li>
+          </ul>
+        </section>
+      </aside>
+    </div>
 
     <footer class="footer">
       <p id="statusHint" class="footer-hint">Connecting…</p>
@@ -146,10 +169,8 @@
 
   <span id="backendLabel" class="hidden" aria-hidden="true"></span>
   <span id="clock" class="hidden" aria-hidden="true"></span>
-  <span id="diskVal" class="hidden"></span>
-  <span id="barDisk" class="hidden"></span>
   <span id="installBtn" class="hidden"></span>
-  <div id="hud" class="hidden"><span id="stateLabel">OFFLINE</span><img id="faceImg" alt="" /></div>
+  <div id="hud" class="hidden"><span id="stateLabel">OFFLINE</span></div>
 
   <script src="/app.js" type="module"></script>
 </body>
