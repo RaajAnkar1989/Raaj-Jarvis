@@ -34,7 +34,7 @@ try:
 except ImportError:
     def list_reminders(*_a, **_k) -> list:
         return []
-from core.client_memory import load_client_memory, remember
+from core.client_memory import load_client_memory, load_chat_history, remember
 from core.file_index import index_file
 from core.llm_config import load_llm_config, save_llm_config
 from core.voice_input import transcribe_file, warmup_stt
@@ -144,17 +144,23 @@ class PWAService:
         self._engine_thread.start()
         self.ui.write_log("SYS: PWA server online.")
 
-    async def handle_chat(self, text: str, client_id: str | None = None, ws: WebSocket | None = None) -> None:
+    async def handle_chat(
+        self,
+        text: str,
+        client_id: str | None = None,
+        ws: WebSocket | None = None,
+        source: str = "text",
+    ) -> None:
         await self.ensure_started()
         self._set_active_client(client_id)
         if ws and client_id:
             self._bind_ws_client(ws, client_id)
         if self.ui.on_text_command:
-            self.ui.on_text_command(text.strip())
+            self.ui.on_text_command(text.strip(), source)
         else:
             await asyncio.sleep(0.3)
             if self.ui.on_text_command:
-                self.ui.on_text_command(text.strip())
+                self.ui.on_text_command(text.strip(), source)
 
 
 service = PWAService()
@@ -227,7 +233,11 @@ async def metrics(x_jarvis_client_id: str | None = Header(default=None)):
 @app.get("/api/memory")
 async def get_memory(x_jarvis_client_id: str | None = Header(default=None)):
     data = load_client_memory(x_jarvis_client_id)
-    return {"entries": data.get("entries") or {}}
+    history = load_chat_history(x_jarvis_client_id)
+    return {
+        "entries": data.get("entries") or {},
+        "chat_count": len(history),
+    }
 
 
 @app.post("/api/memory")
@@ -343,7 +353,8 @@ async def chat(payload: dict, x_jarvis_client_id: str | None = Header(default=No
         return JSONResponse({"error": "empty message"}, status_code=400)
     cid = _client_id(x_jarvis_client_id, payload.get("client_id"))
     service._set_active_client(cid)
-    await service.handle_chat(text, cid)
+    source = str(payload.get("source") or "text")
+    await service.handle_chat(text, cid, source=source)
     return {"ok": True}
 
 
@@ -416,6 +427,7 @@ async def upload(
         "path": str(dest),
         "size": size,
         "summary": summary,
+        "is_image": safe_name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")),
     }
 
 
@@ -467,7 +479,8 @@ async def websocket_endpoint(ws: WebSocket):
             kind = msg.get("type")
             if kind == "chat":
                 cid = _client_id(msg.get("client_id"))
-                await service.handle_chat(msg.get("text", ""), cid, ws)
+                source = str(msg.get("source") or "text")
+                await service.handle_chat(msg.get("text", ""), cid, ws, source)
             elif kind == "mute":
                 service.ui.muted = bool(msg.get("value"))
             elif kind == "register":
@@ -477,6 +490,7 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_json({
                     "type": "memory",
                     "entries": load_client_memory(service.ui.client_id).get("entries") or {},
+                    "chat_count": len(load_chat_history(service.ui.client_id)),
                 })
             elif kind == "ping":
                 await ws.send_json({"type": "pong"})

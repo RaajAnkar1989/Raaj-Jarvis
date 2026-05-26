@@ -34,7 +34,7 @@ const fileHint = $("#fileHint");
 const clearFileBtn = $("#clearFileBtn");
 const setupOverlay = $("#setupOverlay");
 const settingsSidebar = $("#settingsSidebar");
-const sidebarBackdrop = $("#sidebarBackdrop");
+const rightRail = $("#rightRail");
 const backendUrlInput = $("#backendUrl");
 const settingsBackendUrl = $("#settingsBackendUrl");
 const setupError = $("#setupError");
@@ -51,11 +51,21 @@ const heroHud = $("#heroHud");
 const heroState = $("#heroState");
 const clockDisplay = $("#clockDisplay");
 const remindersList = $("#remindersList");
+const wallpaperPreview = $("#wallpaperPreview");
+const wallpaperImg = $("#wallpaperImg");
+const setWallpaperBtn = $("#setWallpaperBtn");
+const stageEl = $("#stage");
 
 const STORAGE_KEY = "jarvis_api";
 const CLIENT_KEY = "jarvis_client_id";
 const PREFS_KEY = "raajarvis_prefs";
 const ALARM_KEY = "raajarvis_alarms";
+const WALLPAPER_KEY = "raajarvis_wallpaper";
+
+let lastLogText = "";
+let lastLogAt = 0;
+let pendingWallpaperUrl = null;
+let chatSending = false;
 
 let heartbeatTimer = null;
 let lastPong = Date.now();
@@ -355,15 +365,30 @@ function shortBackend(url) {
 }
 
 function appendLog(text) {
+  const now = Date.now();
+  if (text === lastLogText && now - lastLogAt < 1500) return;
+  lastLogText = text;
+  lastLogAt = now;
+
   const line = document.createElement("div");
   const lower = text.toLowerCase();
-  if (lower.startsWith("you:")) line.className = "you";
-  else if (lower.startsWith("jarvis:") || lower.startsWith("raajarvis:")) line.className = "ai";
-  else if (lower.includes("err")) line.className = "err";
-  else if (lower.startsWith("file:")) line.className = "sys";
-  else line.className = "sys";
-  line.textContent = text;
+  let display = text;
+  if (lower.startsWith("you:")) {
+    line.className = "you";
+    display = text.replace(/^you:\s*/i, "");
+  } else if (lower.startsWith("jarvis:") || lower.startsWith("raajarvis:")) {
+    line.className = "ai";
+    display = text.replace(/^(jarvis|raajarvis):\s*/i, "");
+  } else if (lower.includes("err")) {
+    line.className = "err";
+  } else if (lower.startsWith("file:")) {
+    line.className = "sys";
+  } else {
+    line.className = "sys";
+  }
+  line.textContent = display;
   logEl.appendChild(line);
+  while (logEl.children.length > 12) logEl.removeChild(logEl.firstChild);
   logEl.scrollTop = logEl.scrollHeight;
 }
 
@@ -560,9 +585,9 @@ function connectWs() {
     try { msg = JSON.parse(ev.data); } catch { return; }
 
     if (msg.type === "log") {
-      if (!msg.text.toLowerCase().startsWith("jarvis:")) {
-        appendLog(msg.text);
-      }
+      const lower = msg.text.toLowerCase();
+      if (lower.startsWith("jarvis:") || lower.startsWith("raajarvis:")) return;
+      appendLog(msg.text);
     }
     if (msg.type === "state") setState(msg.value);
     if (msg.type === "speech") {
@@ -595,7 +620,7 @@ function connectWs() {
       appendLog(`SYS: Indexed — ${msg.summary.slice(0, 120)}…`);
     }
     if (msg.type === "memory") {
-      updateMemoryHint(msg.entries || {});
+      updateMemoryHint(msg.entries || {}, msg.chat_count || 0);
     }
   };
 
@@ -618,18 +643,17 @@ function connectWs() {
   ws.onerror = () => ws.close();
 }
 
-async function sendChat(text) {
+async function sendChat(text, source = "text") {
   const trimmed = text.trim();
   if (!trimmed) return;
-  appendLog(`You: ${trimmed}`);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "chat", text: trimmed, client_id: clientId() }));
+    ws.send(JSON.stringify({ type: "chat", text: trimmed, client_id: clientId(), source }));
     return;
   }
   await fetch(`${apiBase()}/api/chat`, {
     method: "POST",
     headers: apiHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ text: trimmed, client_id: clientId() }),
+    body: JSON.stringify({ text: trimmed, client_id: clientId(), source }),
   });
 }
 
@@ -663,7 +687,35 @@ async function uploadFile(file) {
     body: fd,
   });
   if (!res.ok) throw new Error("upload failed");
-  return res.json();
+  const data = await res.json();
+  if (file.type.startsWith("image/") || data.is_image) {
+    pendingWallpaperUrl = URL.createObjectURL(file);
+    if (wallpaperImg) wallpaperImg.src = pendingWallpaperUrl;
+    wallpaperPreview?.classList.remove("hidden");
+  }
+  return data;
+}
+
+function applyWallpaper(url) {
+  if (!url || !stageEl) return;
+  stageEl.style.backgroundImage = `linear-gradient(rgba(6,13,24,0.55), rgba(6,13,24,0.55)), url(${url})`;
+  stageEl.style.backgroundSize = "cover";
+  stageEl.style.backgroundPosition = "center";
+  document.body.classList.add("hud-wallpaper");
+  try {
+    localStorage.setItem(WALLPAPER_KEY, url);
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function loadWallpaper() {
+  try {
+    const url = localStorage.getItem(WALLPAPER_KEY);
+    if (url) applyWallpaper(url);
+  } catch {
+    /* ignore */
+  }
 }
 
 async function clearFile() {
@@ -694,7 +746,7 @@ function startVadRecording() {
     const blob = new Blob(vadChunks, { type: vadRecorder.mimeType });
     try {
       const text = await transcribeBlob(blob);
-      if (text) await sendChat(text);
+      if (text) await sendChat(text, "voice");
     } catch {
       /* ignore short noise */
     }
@@ -813,18 +865,15 @@ async function refreshMetrics() {
   }
 }
 
-function updateMemoryHint(entries) {
+function updateMemoryHint(entries, chatCount = 0) {
   if (!memoryHint) return;
   const keys = Object.keys(entries || {});
-  if (!keys.length) {
-    memoryHint.textContent = "Raajarvis remembers your preferences on this device.";
-    return;
-  }
-  const preview = keys.slice(-3).map((k) => {
-    const v = entries[k]?.value || entries[k];
-    return `${k}: ${String(v).slice(0, 40)}`;
-  }).join(" · ");
-  memoryHint.textContent = `Remembers (${keys.length}): ${preview}`;
+  const parts = [];
+  if (chatCount > 0) parts.push(`${chatCount} msgs this device`);
+  if (keys.length) parts.push(`${keys.length} facts saved`);
+  memoryHint.textContent = parts.length
+    ? parts.join(" · ")
+    : "Session saved on this device";
 }
 
 async function loadMemory() {
@@ -834,7 +883,7 @@ async function loadMemory() {
     const res = await fetch(`${base}/api/memory`, { headers: apiHeaders() });
     if (res.ok) {
       const data = await res.json();
-      updateMemoryHint(data.entries || {});
+      updateMemoryHint(data.entries || {}, data.chat_count || 0);
     }
   } catch {
     /* ignore */
@@ -922,14 +971,14 @@ async function loadReminders() {
 function openSettings() {
   if (settingsBackendUrl) settingsBackendUrl.value = apiBase();
   loadSettingsFromBackend();
-  settingsSidebar?.classList.add("open");
-  sidebarBackdrop?.classList.remove("hidden");
+  settingsSidebar?.classList.remove("hidden");
+  rightRail?.classList.add("hidden");
   if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "false");
 }
 
 function closeSettings() {
-  settingsSidebar?.classList.remove("open");
-  sidebarBackdrop?.classList.add("hidden");
+  settingsSidebar?.classList.add("hidden");
+  rightRail?.classList.remove("hidden");
   if (settingsSidebar) settingsSidebar.setAttribute("aria-hidden", "true");
 }
 
@@ -940,11 +989,17 @@ function tickClock() {
 }
 
 // Events
-chatForm.addEventListener("submit", (e) => {
+chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const text = chatInput.value;
+  const text = chatInput.value.trim();
+  if (!text || chatSending) return;
+  chatSending = true;
   chatInput.value = "";
-  sendChat(text);
+  try {
+    await sendChat(text, "text");
+  } finally {
+    setTimeout(() => { chatSending = false; }, 800);
+  }
 });
 
 micBtn.addEventListener("click", () => {
@@ -979,7 +1034,13 @@ muteBtn.addEventListener("click", () => {
 settingsBtn.addEventListener("click", () => openSettings());
 
 $("#closeSettingsBtn").addEventListener("click", () => closeSettings());
-sidebarBackdrop?.addEventListener("click", () => closeSettings());
+
+setWallpaperBtn?.addEventListener("click", () => {
+  if (pendingWallpaperUrl) {
+    applyWallpaper(pendingWallpaperUrl);
+    appendLog("SYS: HUD wallpaper set.");
+  }
+});
 
 $("#saveSettingsBtn").addEventListener("click", async () => {
   try {
@@ -1068,6 +1129,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 async function boot() {
+  loadWallpaper();
   localAlarmItems = loadLocalAlarms();
   renderRemindersList();
 

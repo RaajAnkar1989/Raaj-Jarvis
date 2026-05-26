@@ -12,6 +12,7 @@ _lock = threading.Lock()
 _BASE = Path(__file__).resolve().parent.parent / "data" / "client_memory"
 _MAX_VALUE = 400
 _MAX_ENTRIES = 40
+_MAX_HISTORY = 20
 
 
 def _path(client_id: str) -> Path:
@@ -76,12 +77,42 @@ def format_for_prompt(client_id: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def load_chat_history(client_id: str | None) -> list[dict]:
+    if not client_id:
+        return []
+    data = load_client_memory(client_id)
+    hist = data.get("chat_history") or []
+    out: list[dict] = []
+    for item in hist:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = (item.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            out.append({"role": role, "content": content})
+    return out[-_MAX_HISTORY:]
+
+
+def append_chat_turn(client_id: str | None, role: str, content: str) -> None:
+    if not client_id or role not in ("user", "assistant"):
+        return
+    text = (content or "").strip()
+    if not text or text.startswith("[FILE_READY]"):
+        return
+    data = load_client_memory(client_id)
+    hist = data.get("chat_history") or []
+    hist.append({"role": role, "content": text[:800]})
+    data["chat_history"] = hist[-_MAX_HISTORY:]
+    save_client_memory(client_id, data)
+
+
 def auto_remember_from_text(client_id: str | None, text: str) -> None:
     """Lightweight extraction so JARVIS learns without a tool call."""
     if not client_id or not text:
         return
     t = text.strip()
     patterns = [
+        (r"(?:call me|address me as)\s+([A-Za-z]+)", "address_as"),
         (r"(?:my name is|call me|i am)\s+([A-Za-z][A-Za-z\s'-]{1,30})", "name"),
         (r"(?:i like|i love|i enjoy)\s+(.{3,80})", "likes"),
         (r"(?:i live in|i'm from|i am from)\s+(.{2,60})", "location"),

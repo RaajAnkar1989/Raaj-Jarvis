@@ -18,7 +18,12 @@ from core.jarvis_tts import set_speech_hooks, speak as jarvis_speak, warmup_tts
 from core.llm_config import load_llm_config
 from core.tool_executor import execute_tool
 from core.voice_input import listen_once, set_listen_gate, warmup_stt
-from core.client_memory import auto_remember_from_text, format_for_prompt as format_client_memory
+from core.client_memory import (
+    append_chat_turn,
+    auto_remember_from_text,
+    format_for_prompt as format_client_memory,
+    load_chat_history,
+)
 from memory.memory_manager import format_memory_for_prompt, load_memory
 
 FAST_MODEL = "llama3.2:latest"
@@ -55,6 +60,8 @@ def _fast_ack(tool_name: str, args: dict) -> str:
         return f"Certainly, sir. Launching {args.get('app_name', 'the application')}."
     if tool_name == "weather_report":
         return "One moment, sir. Checking the forecast."
+    if tool_name == "reminder":
+        return "Certainly, sir. Setting that timer now."
     return "Very good, sir."
 
 _TYPE_MAP = {
@@ -138,6 +145,8 @@ def _build_system_message(client_id: str | None = None, file_ctx: str | None = N
     base = (
         f"{tone} Today: {now}.\n"
         "Speak naturally in 1-3 short sentences. No markdown or bullet lists.\n"
+        "You remember this device's recent conversation — refer back when the user says "
+        '"that", "it", or "next time".\n'
         "TOOLS (use when needed):\n"
         "- gmail action=list|draft|send — email (when configured)\n"
         "- send_message — WhatsApp/Telegram/Signal on the Mac\n"
@@ -204,6 +213,7 @@ class JarvisLocal:
         self._listen_blocked_until = 0.0
         self.ui.on_text_command = self._on_text_command
         self.ui.on_voice_request = self._on_voice_request
+        self._text_source = "text"
 
         cfg = load_llm_config()
         self._base_url = cfg.get("ollama_base_url", "http://localhost:11434").rstrip("/")
@@ -240,10 +250,19 @@ class JarvisLocal:
             and time.time() >= self._listen_blocked_until
         )
 
-    def _on_text_command(self, text: str):
+    def _load_client_session(self) -> None:
+        client_id = getattr(self.ui, "client_id", None)
+        self._refresh_system()
+        history = load_chat_history(client_id)
+        self._messages = [self._messages[0]] + history
+
+    def _on_text_command(self, text: str, source: str = "text"):
         if not self._loop or not self._input_queue:
             return
-        asyncio.run_coroutine_threadsafe(self._input_queue.put(text), self._loop)
+        self._text_source = source if source in ("text", "voice") else "text"
+        asyncio.run_coroutine_threadsafe(
+            self._input_queue.put(text), self._loop
+        )
 
     def _on_voice_request(self):
         if not self._loop or not self._input_queue:
@@ -357,6 +376,9 @@ class JarvisLocal:
         text = _short_speak(content.strip())
         if not text:
             return
+        if getattr(self.ui, "web_mode", False):
+            self.speak(text)
+            return
         if not getattr(self.ui, "web_mode", False):
             self.ui.write_log(f"Jarvis: {text}")
         sentences = [s.strip() for s in _SENTENCE_END_RE.split(text) if s.strip()]
@@ -367,12 +389,16 @@ class JarvisLocal:
 
     def _stream_and_speak(self, messages: list[dict]) -> str:
         """Stream Ollama tokens; speak each finished sentence immediately."""
+        web = getattr(self.ui, "web_mode", False)
         buffer = ""
         full = ""
 
         for token in self._ollama_chat_stream(messages):
             buffer += token
             full += token
+
+            if web:
+                continue
 
             while True:
                 m = re.search(r"[.!?](?:\s+|$)", buffer)
@@ -384,6 +410,12 @@ class JarvisLocal:
                     continue
                 self.speak(sentence)
 
+        if web:
+            text = _strip_model_noise(full)
+            if text:
+                self.speak(text)
+            return text
+
         tail = buffer.strip()
         if tail:
             self.speak(tail)
@@ -394,34 +426,47 @@ class JarvisLocal:
         from core.stt_filters import prepare_user_text
 
         raw = text.strip()
-        if not raw:
+        if not raw or raw.startswith("[FILE_READY]"):
             return
 
-        text = prepare_user_text(raw)
-        if not text:
-            self.ui.write_log(f"SYS: Ignored noise ({raw[:60]}…)" if len(raw) > 60 else f"SYS: Ignored noise ({raw})")
-            return
+        source = getattr(self, "_text_source", "text")
+        if source == "voice":
+            text = prepare_user_text(raw)
+            if not text:
+                self.ui.write_log(
+                    f"SYS: Ignored noise ({raw[:60]}…)" if len(raw) > 60 else f"SYS: Ignored noise ({raw})"
+                )
+                return
+        else:
+            text = raw
 
         now = time.time()
-        if text == self._last_user_text and now - self._last_user_at < 3.0:
+        if text == self._last_user_text and now - self._last_user_at < 2.0:
             return
         self._last_user_text = text
         self._last_user_at = now
 
         self._is_busy = True
+        self._load_client_session()
         self.ui.write_log(f"You: {text}")
         self.ui.set_state("THINKING")
 
         client_id = getattr(self.ui, "client_id", None)
         auto_remember_from_text(client_id, text)
-        self._refresh_system()
+        append_chat_turn(client_id, "user", text)
+        self._messages.append({"role": "user", "content": text})
 
         route = try_fast_route(text)
         if route:
             name, args = route
             self.speak(_fast_ack(name, args))
             try:
-                await self._run_tool(name, args)
+                result = await self._run_tool(name, args)
+                if result and str(result).strip():
+                    reply = _short_speak(str(result).strip())
+                    append_chat_turn(client_id, "assistant", reply)
+                    self._messages.append({"role": "assistant", "content": reply})
+                    self.speak(reply)
             except Exception as e:
                 traceback.print_exc()
                 self.speak_error(name, str(e))
@@ -451,8 +496,10 @@ class JarvisLocal:
                 )
                 answer = await asyncio.to_thread(ollama_complete, prompt, max_tokens=280)
                 if answer.strip():
-                    self.speak(answer.strip())
-                    self.ui.write_log(f"Jarvis: {_short_speak(answer)}")
+                    reply = _short_speak(answer.strip())
+                    append_chat_turn(client_id, "assistant", reply)
+                    self._messages.append({"role": "assistant", "content": reply})
+                    self.speak(reply)
             except Exception as e:
                 traceback.print_exc()
                 self.speak_error("file", str(e))
@@ -461,7 +508,6 @@ class JarvisLocal:
                 self.ui.set_state("LISTENING")
             return
 
-        self._messages.append({"role": "user", "content": text})
         use_tools = _needs_tools(text)
 
         if not use_tools:
@@ -478,8 +524,7 @@ class JarvisLocal:
                 return
 
             if content and not content.startswith("```"):
-                if not getattr(self.ui, "web_mode", False):
-                    self.ui.write_log(f"Jarvis: {_short_speak(content)}")
+                append_chat_turn(client_id, "assistant", content)
                 self._messages.append({"role": "assistant", "content": content})
             else:
                 self.ui.write_log("SYS: No reply — try again.")
@@ -515,11 +560,16 @@ class JarvisLocal:
                             raw_args = json.loads(raw_args) if raw_args else {}
                         except json.JSONDecodeError:
                             raw_args = {}
-                    await self._run_tool(name, raw_args)
+                    result = await self._run_tool(name, raw_args)
+                    if result and str(result).strip():
+                        reply = _short_speak(str(result).strip())
+                        append_chat_turn(client_id, "assistant", reply)
+                        self._messages.append({"role": "assistant", "content": reply})
                 continue
 
             content = (message.get("content") or "").strip()
             if content and not content.startswith("```"):
+                append_chat_turn(client_id, "assistant", content)
                 self._messages.append({"role": "assistant", "content": content})
                 self._speak_streamed(content)
             elif not tool_calls:
