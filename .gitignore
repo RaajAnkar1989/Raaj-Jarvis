@@ -20,6 +20,7 @@ data/public_url.txt
 data/tunnel.log
 data/tunnel-name.txt
 data/tunnel-hostname.txt
+data/gmail_pkce.json
 data/logs/
 
 # OS

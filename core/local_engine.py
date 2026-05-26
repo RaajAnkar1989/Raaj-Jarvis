@@ -26,7 +26,7 @@ from core.client_memory import (
 )
 from memory.memory_manager import format_memory_for_prompt, load_memory
 
-FAST_MODEL = "llama3.2:latest"
+FAST_MODEL = "qwen2.5:7b"
 
 def _strip_model_noise(text: str) -> str:
     t = text or ""
@@ -62,6 +62,8 @@ def _fast_ack(tool_name: str, args: dict) -> str:
         return "One moment, sir. Checking the forecast."
     if tool_name == "reminder":
         return "Certainly, sir. Setting that timer now."
+    if tool_name == "office_compose":
+        return "Right away, sir. Opening Office and composing that for you."
     return "Very good, sir."
 
 _TYPE_MAP = {
@@ -78,7 +80,7 @@ _ACTION_RE = re.compile(
     r"volume|brightness|browser|website|go to|file|folder|delete|move|copy|"
     r"shutdown|restart|screenshot|youtube|you tube|song|music|video|message|send|"
     r"install|update|screen|camera|wifi|spotify|chrome|safari|email|gmail|mail|"
-    r"alarm|timer|whatsapp|text)\b",
+    r"alarm|timer|whatsapp|text|word|excel|document|spreadsheet|write)\b",
     re.I,
 )
 
@@ -148,9 +150,10 @@ def _build_system_message(client_id: str | None = None, file_ctx: str | None = N
         "You remember this device's recent conversation — refer back when the user says "
         '"that", "it", or "next time".\n'
         "TOOLS (use when needed):\n"
-        "- gmail action=list|draft|send — email (when configured)\n"
+        "- gmail action=list|search|read|open|draft|send|calendar — email & calendar (when connected)\n"
         "- send_message — WhatsApp/Telegram/Signal on the Mac\n"
         "- reminder — real alarms/reminders (date YYYY-MM-DD, time HH:MM)\n"
+        "- office_compose — create Word/Excel docs visibly (topic, word_count, app=word|excel)\n"
         "- youtube_video action=play query=<song>\n"
         "- file_processor — uploaded file questions\n"
         "- save_memory — remember user facts\n"
@@ -300,7 +303,10 @@ class JarvisLocal:
 
     def _web_tts(self, text: str):
         try:
-            self.ui.emit_speech(text)
+            if hasattr(self.ui, "emit_speech_sync"):
+                self.ui.emit_speech_sync(text)
+            else:
+                self.ui.emit_speech(text)
         finally:
             self.set_speaking(False)
             self._listen_blocked_until = time.time() + self._listen_cooldown
@@ -315,7 +321,7 @@ class JarvisLocal:
         }
         if use_tools:
             payload["tools"] = self._all_tools
-        resp = requests.post(f"{self._base_url}/api/chat", json=payload, timeout=60)
+        resp = requests.post(f"{self._base_url}/api/chat", json=payload, timeout=120)
         resp.raise_for_status()
         return resp.json()
 
@@ -328,7 +334,7 @@ class JarvisLocal:
             "options": _ollama_options(tools=False),
         }
         resp = requests.post(
-            f"{self._base_url}/api/chat", json=payload, stream=True, timeout=60
+            f"{self._base_url}/api/chat", json=payload, stream=True, timeout=120
         )
         resp.raise_for_status()
         for line in resp.iter_lines():

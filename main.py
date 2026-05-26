@@ -119,16 +119,24 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "gmail",
-        "description": "Gmail — list inbox, draft, or send email (requires Gmail API in Settings).",
+        "description": (
+            "Gmail and Calendar — list/search/read inbox, open Gmail in browser, draft, send, "
+            "or list upcoming calendar events (requires Connect Gmail in Settings)."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action": {"type": "STRING", "description": "list | draft | send"},
+                "action": {
+                    "type": "STRING",
+                    "description": "list | search | read | open | draft | send | calendar",
+                },
                 "to": {"type": "STRING", "description": "Recipient email for draft/send"},
                 "subject": {"type": "STRING", "description": "Email subject"},
                 "body": {"type": "STRING", "description": "Email body"},
                 "message": {"type": "STRING", "description": "Alias for body"},
-                "query": {"type": "STRING", "description": "Search query for list (default inbox)"},
+                "query": {"type": "STRING", "description": "Gmail search query (from:, subject:, is:unread, etc.)"},
+                "id": {"type": "STRING", "description": "Gmail message id for read"},
+                "max": {"type": "INTEGER", "description": "Max results for list/search/calendar"},
             },
             "required": []
         }
@@ -145,6 +153,39 @@ TOOL_DECLARATIONS = [
             },
             "required": ["receiver", "message_text", "platform"]
         }
+    },
+    {
+        "name": "office_compose",
+        "description": (
+            "Creates a Word document or Excel spreadsheet on the Mac and types content visibly. "
+            "Use when the user asks to write/create a document, essay, report in Word, or data in Excel."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "app": {
+                    "type": "STRING",
+                    "description": "word or excel",
+                },
+                "topic": {
+                    "type": "STRING",
+                    "description": "Subject or topic to write about",
+                },
+                "content": {
+                    "type": "STRING",
+                    "description": "Optional pre-written body text (skip generation if provided)",
+                },
+                "word_count": {
+                    "type": "INTEGER",
+                    "description": "Target word count for Word docs (default 300)",
+                },
+                "title": {
+                    "type": "STRING",
+                    "description": "Optional document title",
+                },
+            },
+            "required": ["app", "topic"],
+        },
     },
     {
         "name": "reminder",

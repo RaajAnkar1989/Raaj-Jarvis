@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <meta name="theme-color" content="#000610" />
+  <meta name="theme-color" content="#050810" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="JARVIS" />
@@ -11,6 +11,9 @@
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/face.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
   <title>JARVIS</title>
   <script src="/discovery.js"></script>
@@ -30,128 +33,125 @@
     </div>
   </div>
 
-  <div class="app">
-    <div class="grid-bg" aria-hidden="true"></div>
+  <div class="jarvis-root app">
+    <div class="jarvis-grid" aria-hidden="true"></div>
+    <div class="jarvis-glow jarvis-glow--top" aria-hidden="true"></div>
+    <div class="jarvis-glow jarvis-glow--bottom" aria-hidden="true"></div>
 
-    <header class="top-bar">
-      <div class="title-block">
-        <h1>JARVIS</h1>
-        <p id="brainHint">Connecting…</p>
-      </div>
-      <div class="top-actions">
-        <span id="connDot" class="conn-dot offline"></span>
-        <button id="chatToggleBtn" class="icon-btn" type="button" aria-label="Chat log">💬</button>
-        <button id="settingsBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
-      </div>
-    </header>
+    <button id="chatToggleBtn" class="icon-btn jarvis-chat-btn" type="button" aria-label="Chat">💬</button>
+    <button id="settingsBtn" class="icon-btn jarvis-settings-btn" type="button" aria-label="Settings">⚙</button>
+    <span id="connDot" class="conn-dot offline jarvis-conn"></span>
 
-    <main class="hud-grid">
-      <aside class="col-left">
-        <section class="widget">
-          <h3>SYSTEM</h3>
-          <div class="metric-line">
-            <span>BATTERY</span>
-            <div class="bar"><div id="barBatt" class="fill batt"></div></div>
-            <em id="battVal">—</em>
-          </div>
-          <div class="metric-line">
-            <span>MEMORY</span>
-            <div class="bar"><div id="barMem" class="fill mem"></div></div>
-            <em id="memVal">—</em>
-          </div>
-          <div class="metric-line">
-            <span>TIMERS</span>
-            <div class="bar"><div id="barTimers" class="fill timers"></div></div>
-            <em id="timerCount">0</em>
-          </div>
-          <div class="metric-line">
-            <span>SESSION</span>
-            <div class="bar"><div id="barSession" class="fill session"></div></div>
-            <em id="sessionVal">Idle</em>
-          </div>
-          <div class="metric-line hidden-metric">
-            <span>CPU</span>
-            <div class="bar"><div id="barCpu" class="fill"></div></div>
-            <em id="cpuVal">—</em>
-          </div>
-          <div class="metric-line hidden-metric">
-            <span>DISK</span>
-            <div class="bar"><div id="barDisk" class="fill disk"></div></div>
-            <em id="diskVal">—</em>
-          </div>
-        </section>
-
-        <section class="widget">
-          <h3>RECENT APPS</h3>
-          <ul id="recentApps" class="recent-list">
-            <li class="empty">No recent activity</li>
-          </ul>
-          <div id="fileZone" class="file-zone">
-            <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg,.webp,.gif" />
-            <p id="fileHint">Tap to upload file</p>
-            <button id="clearFileBtn" class="ghost tiny hidden" type="button">Clear</button>
-          </div>
-        </section>
-      </aside>
-
-      <section class="col-center">
-        <div id="hud" class="hud" aria-live="polite">
-          <div class="hud-ring ring-1"></div>
-          <div class="hud-ring ring-2"></div>
-          <div class="hud-ring ring-3"></div>
-          <div class="hud-dots"><span></span><span></span><span></span><span></span><span></span></div>
-          <img id="faceImg" class="hud-face" src="/icons/face.png" alt="" />
-          <div class="hud-core">
-            <span id="stateLabel">OFFLINE</span>
-          </div>
+    <!-- Desktop: left HUD -->
+    <aside class="jarvis-hud jarvis-hud--left jarvis-hud-desktop">
+      <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">System</p>
+        <div class="jarvis-hud-stat">
+          <div class="jarvis-hud-row"><span class="jarvis-hud-label">Battery</span><span class="jarvis-hud-value" id="battVal">—</span></div>
+          <div class="jarvis-hud-bar"><span id="barBatt" class="jarvis-hud-bar-fill jarvis-hud-bar-fill--good"></span></div>
         </div>
-        <p id="activateHint" class="activate-hint">TAP TO ACTIVATE</p>
-        <button id="micBtn" class="mic-orb" type="button" aria-label="Microphone">
-          <span class="mic-glyph">🎤</span>
-        </button>
-        <p id="micNote" class="mic-note">TAP MIC · ALLOW MICROPHONE WHEN ASKED</p>
-        <p id="statusHint" class="status-hint hidden"></p>
-        <div id="logPanel" class="log-panel hidden">
-          <div id="log" class="log"></div>
+        <div class="jarvis-hud-stat">
+          <div class="jarvis-hud-row"><span class="jarvis-hud-label">Memory</span><span class="jarvis-hud-value" id="memVal">—</span></div>
+          <div class="jarvis-hud-bar"><span id="barMem" class="jarvis-hud-bar-fill jarvis-hud-bar-fill--cyan"></span></div>
         </div>
-      </section>
+        <div class="jarvis-hud-stat">
+          <div class="jarvis-hud-row"><span class="jarvis-hud-label">Timers</span><span class="jarvis-hud-value" id="timerCount">0</span></div>
+          <div class="jarvis-hud-bar"><span id="barTimers" class="jarvis-hud-bar-fill jarvis-hud-bar-fill--warn"></span></div>
+        </div>
+        <div class="jarvis-hud-stat">
+          <div class="jarvis-hud-row"><span class="jarvis-hud-label">Session</span><span class="jarvis-hud-value" id="sessionVal">Idle</span></div>
+          <div class="jarvis-hud-bar"><span id="barSession" class="jarvis-hud-bar-fill jarvis-hud-bar-fill--cyan"></span></div>
+        </div>
+        <span id="barCpu" class="hidden"></span><span id="cpuVal" class="hidden"></span>
+        <span id="barDisk" class="hidden"></span><span id="diskVal" class="hidden"></span>
+      </div>
+      <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">Recent Apps</p>
+        <ul id="recentApps" class="recent-list"><li class="jarvis-hud-empty">No recent activity</li></ul>
+        <div id="fileZone" class="file-zone">
+          <input id="fileInput" type="file" hidden accept=".pdf,.doc,.docx,.txt,.md,.mp3,.wav,.m4a,.csv,.json,.pptx,.png,.jpg,.jpeg,.webp,.gif" />
+          <p id="fileHint" class="jarvis-hud-empty">Tap to upload file</p>
+          <button id="clearFileBtn" class="ghost tiny hidden" type="button">Clear</button>
+        </div>
+      </div>
+    </aside>
 
-      <aside class="col-right">
-        <section class="widget today-widget">
-          <h3>TODAY</h3>
-          <div id="todayTime" class="today-time">--:--</div>
-          <div id="todayDate" class="today-date">—</div>
-          <p class="today-sub">Weather · Calendar — connect in settings</p>
-        </section>
+    <!-- Desktop: right HUD -->
+    <aside class="jarvis-hud jarvis-hud--right jarvis-hud-desktop">
+      <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">Today</p>
+        <div class="jarvis-hud-clock-block">
+          <div id="todayTime" class="jarvis-hud-clock">--:--</div>
+          <div id="todayDate" class="jarvis-hud-date">—</div>
+        </div>
+        <p class="jarvis-hud-detail">Weather · Calendar — connect in settings</p>
+      </div>
+      <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">Inbox &amp; Tasks</p>
+        <p class="jarvis-hud-detail"><span>Unread mail</span> · All caught up</p>
+        <p class="jarvis-hud-detail" id="taskCount">No open tasks</p>
+        <ul id="remindersList" class="reminders-list">
+          <li class="reminder-empty jarvis-hud-empty">No reminders</li>
+        </ul>
+      </div>
+      <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">Quick Commands</p>
+        <p class="jarvis-hud-tip">Say: open WhatsApp</p>
+        <p class="jarvis-hud-tip">Say: Jarvis, set a 5 minute timer</p>
+        <p class="jarvis-hud-tip">Say: Jarvis, what time is it</p>
+      </div>
+    </aside>
 
-        <section class="widget">
-          <h3>INBOX &amp; TASKS</h3>
-          <p class="inbox-row"><span>UNREAD MAIL</span><em>All caught up</em></p>
-          <p class="inbox-row"><span>OPEN TASKS</span><em id="taskCount">No open tasks</em></p>
-          <ul id="remindersList" class="reminders-list">
-            <li class="reminder-empty">No reminders</li>
-          </ul>
-        </section>
+    <!-- Mobile: compact top tiles -->
+    <div class="jarvis-hud-mobile">
+      <div class="jarvis-hud-tiles-scroll">
+        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Batt</span><span class="jarvis-hud-tile-value" id="mobBatt">—</span></div>
+        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Mem</span><span class="jarvis-hud-tile-value" id="mobMem">—</span></div>
+        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Timers</span><span class="jarvis-hud-tile-value" id="mobTimers">0</span></div>
+        <div class="jarvis-hud-tile"><span class="jarvis-hud-tile-label">Session</span><span class="jarvis-hud-tile-value" id="mobSession">Idle</span></div>
+      </div>
+    </div>
 
-        <section class="widget">
-          <h3>QUICK COMMANDS</h3>
-          <ul class="quick-cmds">
-            <li>Say: open WhatsApp</li>
-            <li>Say: Jarvis, set a 5 minute timer</li>
-            <li>Say: Jarvis, what time is it</li>
-          </ul>
-        </section>
-      </aside>
-    </main>
+    <!-- Center -->
+    <div class="jarvis-center">
+      <h1 class="jarvis-brand">JARVIS</h1>
+      <p id="brainHint" class="jarvis-tagline">Connecting…</p>
 
-    <footer class="footer compact">
-      <form id="chatForm" class="input-row">
-        <input id="chatInput" type="text" placeholder="Type to JARVIS…" autocomplete="off" enterkeyhint="send" />
-        <button id="sendBtn" type="submit" aria-label="Send">▸</button>
+      <div id="hud" class="jarvis-orb-container">
+        <div class="jarvis-ring jarvis-ring--1"></div>
+        <div class="jarvis-ring jarvis-ring--2"></div>
+        <div class="jarvis-ring jarvis-ring--3"></div>
+        <img id="faceImg" class="hud-face" src="/icons/face.png" alt="" />
+        <div id="jarvisCore" class="jarvis-core">
+          <div id="visualizer" class="jarvis-visualizer hidden">
+            <span class="jarvis-bar"></span><span class="jarvis-bar"></span><span class="jarvis-bar"></span>
+            <span class="jarvis-bar"></span><span class="jarvis-bar"></span>
+          </div>
+          <span id="stateLabel" class="core-label">OFFLINE</span>
+        </div>
+      </div>
+
+      <p id="jarvisStatus" class="jarvis-status">Tap to activate</p>
+      <p id="activateHint" class="hidden">TAP TO ACTIVATE</p>
+      <p id="statusHint" class="hidden"></p>
+
+      <div id="logPanel" class="log-panel hidden">
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <!-- Bottom mic -->
+    <div class="jarvis-controls">
+      <button id="micBtn" class="jarvis-talk-btn" type="button" aria-label="Microphone">
+        <span class="jarvis-talk-btn-inner"><span class="mic-glyph">🎤</span></span>
+      </button>
+      <p id="micNote" class="jarvis-hint">Tap mic · allow microphone when asked</p>
+      <form id="chatForm" class="chat-row">
+        <input id="chatInput" type="text" placeholder="Type to JARVIS…" autocomplete="off" />
+        <button id="sendBtn" type="submit">▸</button>
       </form>
       <button id="stopBtn" class="ghost stop-btn hidden" type="button">Stop speaking</button>
-      <button id="muteBtn" class="ghost tiny hidden" type="button">Mic on</button>
-    </footer>
+    </div>
   </div>
 
   <aside id="settingsSidebar" class="settings-drawer hidden" aria-hidden="true">
@@ -167,7 +167,6 @@
         <p><span>Status</span><strong id="settingsConn">Offline</strong></p>
         <p class="model-tag-line"><span id="modelLabel">—</span></p>
       </div>
-
       <label class="field-label" for="settingsVoice">Voice</label>
       <select id="settingsVoice">
         <option value="en-US-AndrewMultilingualNeural">Andrew</option>
@@ -175,19 +174,37 @@
         <option value="en-US-AriaNeural">Aria</option>
         <option value="en-US-GuyNeural">Guy</option>
       </select>
-
       <label class="field-label" for="settingsPersonality">Personality</label>
       <select id="settingsPersonality">
         <option value="professional">Professional</option>
         <option value="happy">Happy mode</option>
       </select>
-
       <label class="field-label" for="settingsSpeed">Speech speed</label>
       <input id="settingsSpeed" type="range" min="0" max="30" value="12" />
       <p class="modal-hint" id="speedLabel">Faster (+12%)</p>
 
-      <label class="field-label" for="settingsBackendUrl">Backend URL</label>
-      <input id="settingsBackendUrl" type="url" placeholder="Auto-connected" />
+      <details class="settings-section">
+        <summary>Gmail &amp; Calendar (optional)</summary>
+        <p class="modal-hint">
+          Create a <strong>Desktop</strong> OAuth client in
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>.
+          Enable
+          <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank" rel="noopener">Gmail API</a>
+          and
+          <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Calendar API</a>.
+          Only your Client ID is needed — tap Connect to sign in with Google.
+        </p>
+        <label class="field-label" for="gmailClientId">Client ID</label>
+        <input id="gmailClientId" type="text" autocomplete="off" placeholder="….apps.googleusercontent.com" />
+        <p class="modal-hint" id="gmailRedirectHint">Redirect URI appears when backend is connected.</p>
+        <button id="gmailConnectBtn" type="button" class="primary gmail-connect-btn">Connect Gmail</button>
+        <p class="modal-hint" id="gmailStatusLine">Not connected</p>
+      </details>
+
+      <details class="advanced-block">
+        <summary>Advanced — backend URL</summary>
+        <input id="settingsBackendUrl" type="url" placeholder="Auto-connected" />
+      </details>
       <p class="modal-hint" id="settingsStatus">Ready</p>
       <p id="memoryHint" class="memory-hint">Session saved on this device</p>
     </div>
@@ -202,9 +219,7 @@
   <span id="heroState" class="hidden"></span>
   <span id="installBtn" class="hidden"></span>
   <span id="micLabel" class="hidden"></span>
-  <input id="gmailClientId" type="hidden" />
-  <input id="gmailClientSecret" type="hidden" />
-  <input id="gmailRefreshToken" type="hidden" />
+  <button id="muteBtn" class="ghost tiny hidden" type="button">Mic on</button>
 
   <script src="/app.js" type="module"></script>
 </body>

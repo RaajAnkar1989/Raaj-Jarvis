@@ -31,8 +31,9 @@ const settingsPersonality = $("#settingsPersonality");
 const settingsSpeed = $("#settingsSpeed");
 const speedLabel = $("#speedLabel");
 const gmailClientId = $("#gmailClientId");
-const gmailClientSecret = $("#gmailClientSecret");
-const gmailRefreshToken = $("#gmailRefreshToken");
+const gmailConnectBtn = $("#gmailConnectBtn");
+const gmailStatusLine = $("#gmailStatusLine");
+const gmailRedirectHint = $("#gmailRedirectHint");
 const chatForm = $("#chatForm");
 const chatInput = $("#chatInput");
 const micBtn = $("#micBtn");
@@ -64,6 +65,12 @@ const memVal = $("#memVal");
 const diskVal = $("#diskVal");
 const battVal = $("#battVal");
 const remindersList = $("#remindersList");
+const jarvisStatus = $("#jarvisStatus");
+const visualizer = $("#visualizer");
+const mobBatt = $("#mobBatt");
+const mobMem = $("#mobMem");
+const mobTimers = $("#mobTimers");
+const mobSession = $("#mobSession");
 
 const STORAGE_KEY = "jarvis_api";
 const CLIENT_KEY = "jarvis_client_id";
@@ -105,6 +112,14 @@ function upsertLocalAlarm(date, time, message) {
   saveLocalAlarms(items);
 }
 
+function restoreLocalAlarmsOnBoot() {
+  for (const item of loadLocalAlarms()) {
+    if (item.date && item.time) {
+      schedulePhoneAlarm(item.date, item.time, item.message || "Reminder");
+    }
+  }
+}
+
 function pushRecent(label) {
   if (!label || !recentApps) return;
   let items = [];
@@ -130,7 +145,7 @@ function renderRecentApps(items = []) {
   recentApps.innerHTML = "";
   if (!items.length) {
     const li = document.createElement("li");
-    li.className = "empty";
+    li.className = "jarvis-hud-empty";
     li.textContent = "No recent activity";
     recentApps.appendChild(li);
     return;
@@ -176,24 +191,20 @@ function updateSessionUi(state) {
   }
   if (barSession) barSession.style.width = `${pct}%`;
   if (sessionVal) sessionVal.textContent = label;
+  if (mobSession) mobSession.textContent = label;
 }
 
 function updateTimerUi(count) {
   const n = Number(count) || 0;
   if (timerCount) timerCount.textContent = String(n);
   if (barTimers) barTimers.style.width = `${Math.min(100, n * 25)}%`;
+  if (mobTimers) mobTimers.textContent = String(n);
   if (taskCount) {
     taskCount.textContent = n ? `${n} reminder${n === 1 ? "" : "s"}` : "No open tasks";
   }
 }
 
 function loadPrefs() {
-  try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
   try {
     return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}");
   } catch {
@@ -215,6 +226,85 @@ function rateLabel(pct) {
   return n === 0 ? "Normal" : n > 0 ? `Faster (+${n}%)` : `Slower (${n}%)`;
 }
 
+function updateGmailStatusUI(status) {
+  if (!status) return;
+  if (gmailClientId && status.client_id && !gmailClientId.value.trim()) {
+    gmailClientId.value = status.client_id;
+  }
+  if (gmailStatusLine) {
+    if (status.connected) {
+      gmailStatusLine.textContent = "✓ Gmail & Calendar connected";
+      gmailStatusLine.style.color = "var(--pri)";
+    } else if (status.has_client_id) {
+      gmailStatusLine.textContent = "Client ID saved — tap Connect Gmail to sign in";
+      gmailStatusLine.style.color = "";
+    } else {
+      gmailStatusLine.textContent = "Not connected";
+      gmailStatusLine.style.color = "";
+    }
+  }
+  if (gmailConnectBtn) {
+    gmailConnectBtn.textContent = status.connected ? "Reconnect Gmail" : "Connect Gmail";
+  }
+}
+
+async function loadGmailStatus() {
+  const base = apiBase();
+  if (!base) return;
+  try {
+    const res = await fetch(`${base}/api/gmail/status`, { headers: apiHeaders() });
+    if (res.ok) updateGmailStatusUI(await res.json());
+    const uriRes = await fetch(`${base}/api/gmail/oauth/redirect-uris`, { headers: apiHeaders() });
+    if (uriRes.ok && gmailRedirectHint) {
+      const { redirect_uris: uris } = await uriRes.json();
+      if (uris?.length) {
+        gmailRedirectHint.innerHTML =
+          "Add this redirect URI in Google Cloud Console:<br><code>" +
+          uris.map((u) => u.replace(/</g, "&lt;")).join("</code><br><code>") +
+          "</code>";
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function connectGmail() {
+  const base = apiBase();
+  if (!base) throw new Error("Connect to your Mac backend first.");
+  const clientId = gmailClientId?.value?.trim();
+  if (!clientId) throw new Error("Paste your Google Client ID first.");
+
+  await fetch(`${base}/api/gmail/settings`, {
+    method: "POST",
+    headers: apiHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ client_id: clientId }),
+  });
+
+  if (gmailStatusLine) gmailStatusLine.textContent = "Opening Google sign-in…";
+
+  const popup = window.open(`${base}/api/gmail/oauth/start`, "_blank", "noopener");
+  if (!popup) {
+    window.location.href = `${base}/api/gmail/oauth/start`;
+  }
+
+  let attempts = 0;
+  const poll = setInterval(async () => {
+    attempts += 1;
+    try {
+      const res = await fetch(`${base}/api/gmail/status`, { headers: apiHeaders() });
+      if (res.ok) {
+        const status = await res.json();
+        updateGmailStatusUI(status);
+        if (status.connected || attempts > 60) clearInterval(poll);
+      }
+    } catch {
+      /* ignore */
+    }
+    if (attempts > 60) clearInterval(poll);
+  }, 2000);
+}
+
 async function applySettingsToBackend() {
   const base = apiBase();
   if (!base) return;
@@ -232,17 +322,11 @@ async function applySettingsToBackend() {
     }),
   });
   const gid = gmailClientId?.value?.trim();
-  const gsec = gmailClientSecret?.value?.trim();
-  const gref = gmailRefreshToken?.value?.trim();
-  if (gid && gsec && gref) {
+  if (gid) {
     await fetch(`${base}/api/gmail/settings`, {
       method: "POST",
       headers: apiHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        client_id: gid,
-        client_secret: gsec,
-        refresh_token: gref,
-      }),
+      body: JSON.stringify({ client_id: gid }),
     });
   }
   savePrefs({ voice, personality, speed });
@@ -270,6 +354,7 @@ async function loadSettingsFromBackend() {
     }
     const statusRes = await fetch(`${base}/api/status`, { headers: apiHeaders() });
     if (statusRes.ok) updateModelDisplay(await statusRes.json());
+    await loadGmailStatus();
   } catch {
     /* ignore */
   }
@@ -289,6 +374,57 @@ function interruptJarvis() {
   setState("LISTENING");
 }
 
+function playReminderAlert(message) {
+  appendLog(`⏰ REMINDER — ${message || "Timer done"}`);
+  if (Notification.permission === "granted") {
+    new Notification("JARVIS Reminder", {
+      body: message || "Timer finished",
+      requireInteraction: true,
+    });
+  }
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const beep = (freq, t0, dur, vol = 0.4) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.value = vol;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + t0);
+        osc.stop(ctx.currentTime + t0 + dur);
+      };
+      beep(880, 0, 0.18);
+      beep(988, 0.22, 0.18);
+      beep(1175, 0.44, 0.28);
+      beep(880, 0.8, 0.18);
+      beep(1175, 1.02, 0.35);
+    }
+  } catch {
+    /* ignore */
+  }
+  if (navigator.vibrate) {
+    navigator.vibrate([180, 80, 180, 80, 320]);
+  }
+  const hud = document.getElementById("hud");
+  if (hud) {
+    hud.classList.add("reminder-flash");
+    setTimeout(() => hud.classList.remove("reminder-flash"), 4000);
+  }
+  if (jarvisStatus) {
+    jarvisStatus.textContent = "Reminder!";
+    jarvisStatus.classList.add("live");
+    setTimeout(() => {
+      if (jarvisStatus.textContent === "Reminder!") {
+        jarvisStatus.textContent = heroStatusText(backendState);
+      }
+    }, 5000);
+  }
+}
+
 function schedulePhoneAlarm(date, time, message) {
   if (!date || !time) return;
   const when = new Date(`${date}T${time}:00`);
@@ -297,25 +433,9 @@ function schedulePhoneAlarm(date, time, message) {
   if (ms <= 0) return;
   const id = `${date}_${time}_${message}`;
   if (scheduledAlarms.has(id)) return;
-  const timer = setTimeout(async () => {
+  const timer = setTimeout(() => {
     scheduledAlarms.delete(id);
-    if (Notification.permission === "granted") {
-      new Notification("Raajarvis Reminder", { body: message });
-    }
-    appendLog(`SYS: Reminder — ${message}`);
-    try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = 880;
-      gain.gain.value = 0.15;
-      osc.start();
-      setTimeout(() => osc.stop(), 400);
-    } catch {
-      /* ignore */
-    }
+    playReminderAlert(message);
   }, ms);
   scheduledAlarms.set(id, timer);
   upsertLocalAlarm(date, time, message);
@@ -361,6 +481,7 @@ let wsConnecting = false;
 let reconnectTimer = null;
 let muted = false;
 let jarvisSpeaking = false;
+let backendState = "STANDBY";
 let voiceActive = false;
 let installPrompt = null;
 let audioQueue = Promise.resolve();
@@ -391,19 +512,36 @@ function isAutoConnect() {
   return !!(bakedApi() || window.__JARVIS_NETLIFY_PROXY__);
 }
 
-async function discoverBackend() {
+async function fetchDiscoveryUrl() {
   const cfg = window.__JARVIS_DISCOVERY__;
-  if (!cfg?.url) return null;
+  const sources = cfg?.sources?.length
+    ? cfg.sources
+    : (cfg?.url ? [{ url: cfg.url }] : []);
+  for (const source of sources) {
+    try {
+      const headers = {};
+      if (source.accept) headers.Accept = source.accept;
+      const res = await fetch(`${source.url}?t=${Date.now()}`, {
+        signal: AbortSignal.timeout(12000),
+        cache: "no-store",
+        headers,
+      });
+      if (!res.ok) continue;
+      const raw = (await res.text()).trim();
+      const line = raw.split("\n").find((l) => l.startsWith("https://")) || raw;
+      const url = line.trim().replace(/\/$/, "");
+      if (url.startsWith("https://")) return url;
+    } catch {
+      /* try next source */
+    }
+  }
+  return null;
+}
+
+async function discoverBackend() {
+  const url = await fetchDiscoveryUrl();
+  if (!url) return null;
   try {
-    const res = await fetch(`${cfg.url}?t=${Date.now()}`, {
-      signal: AbortSignal.timeout(12000),
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const raw = (await res.text()).trim();
-    const line = raw.split("\n").find((l) => l.startsWith("https://")) || raw;
-    const url = line.trim().replace(/\/$/, "");
-    if (!url.startsWith("https://")) return null;
     await testBackend(url);
     return url;
   } catch {
@@ -411,12 +549,47 @@ async function discoverBackend() {
   }
 }
 
+let reconnecting = false;
+
+async function reconnectIfStale() {
+  if (reconnecting || isAutoConnect()) return;
+  reconnecting = true;
+  try {
+    const url = await discoverBackend();
+    if (!url) return;
+    const saved = savedApi();
+    if (url !== saved) {
+      localStorage.setItem(STORAGE_KEY, url);
+      setupOverlay?.classList.add("hidden");
+      connectWs();
+      await refreshStatus();
+    }
+  } finally {
+    reconnecting = false;
+  }
+}
+
+function startHealthWatch() {
+  setInterval(async () => {
+    const base = apiBase();
+    if (!base || isAutoConnect()) return;
+    try {
+      await testBackend(base);
+      setConn(true);
+    } catch {
+      setConn(false);
+      if (brainHint) brainHint.textContent = "Reconnecting to your Mac…";
+      await reconnectIfStale();
+    }
+  }, 20000);
+}
+
 async function discoverBackendWithRetry(maxMs = 90000) {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     const url = await discoverBackend();
     if (url) return url;
-    statusHint.textContent = "Looking for JARVIS on your Mac…";
+    if (statusHint) statusHint.textContent = "Looking for JARVIS on your Mac…";
     await new Promise((r) => setTimeout(r, 4000));
   }
   return null;
@@ -428,6 +601,7 @@ async function connectDiscovered(url) {
   connectWs();
   refreshStatus();
   setInterval(refreshMetrics, 4000);
+  startHealthWatch();
 }
 
 function apiBase() {
@@ -499,19 +673,40 @@ function setConn(ok) {
   if (!ok) updateSessionUi("OFFLINE");
 }
 
+function heroStatusText(state) {
+  const s = (state || "").toUpperCase();
+  if (s === "LISTENING" || s === "RECORDING") return "Listening";
+  if (s === "SPEAKING") return "Speaking";
+  if (s === "THINKING") return "Thinking";
+  if (s === "OFFLINE") return "Offline";
+  return "Tap to activate";
+}
+
 function setHeroMode(state) {
   if (!hudEl) return;
   hudEl.classList.remove("speaking", "listening", "thinking");
   const s = (state || "").toUpperCase();
+  const live = s === "LISTENING" || s === "RECORDING" || s === "SPEAKING" || s === "THINKING";
   if (s === "SPEAKING") hudEl.classList.add("speaking");
   else if (s === "LISTENING" || s === "RECORDING") hudEl.classList.add("listening");
   else if (s === "THINKING") hudEl.classList.add("thinking");
-  if (stateLabel) stateLabel.textContent = s || "STANDBY";
+
+  const listening = s === "LISTENING" || s === "RECORDING";
+  if (visualizer) visualizer.classList.toggle("hidden", !listening);
+  if (stateLabel) {
+    stateLabel.classList.toggle("hidden", listening);
+    if (!listening) stateLabel.textContent = s || "STANDBY";
+  }
+  if (jarvisStatus) {
+    jarvisStatus.textContent = heroStatusText(s);
+    jarvisStatus.classList.toggle("live", live);
+  }
   updateSessionUi(s);
 }
 
 function setState(state) {
   const label = state || "STANDBY";
+  backendState = label;
   if (stateLabel) stateLabel.textContent = label;
   if (stateChip) stateChip.textContent = label;
   setHeroMode(label);
@@ -564,8 +759,23 @@ function stopPlayback() {
   }
 }
 
-function playSpeech(base64Audio) {
-  if (!base64Audio) return;
+function speakBrowserFallback(text) {
+  if (!text || !window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    window.speechSynthesis.speak(u);
+  } catch {
+    /* ignore */
+  }
+}
+
+function playSpeech(base64Audio, text = "") {
+  if (!base64Audio) {
+    speakBrowserFallback(text);
+    return;
+  }
   audioQueue = audioQueue.then(() => new Promise((resolve) => {
     stopPlayback();
     const bytes = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
@@ -574,6 +784,7 @@ function playSpeech(base64Audio) {
     const audio = new Audio(url);
     currentAudio = audio;
     jarvisSpeaking = true;
+    setState("SPEAKING");
     updateMicState();
     audio.onended = () => {
       URL.revokeObjectURL(url);
@@ -587,9 +798,13 @@ function playSpeech(base64Audio) {
       URL.revokeObjectURL(url);
       jarvisSpeaking = false;
       updateMicState();
+      speakBrowserFallback(text);
       resolve();
     };
-    audio.play().catch(() => resolve());
+    audio.play().catch(() => {
+      speakBrowserFallback(text);
+      resolve();
+    });
   }));
 }
 
@@ -666,11 +881,16 @@ function connectWs() {
     heartbeatTimer = setInterval(() => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "ping" }));
-        if (Date.now() - lastPong > 45000) {
+        const busy = jarvisSpeaking
+          || backendState === "THINKING"
+          || backendState === "SPEAKING"
+          || backendState === "RECORDING";
+        const limit = busy ? 180000 : 90000;
+        if (Date.now() - lastPong > limit) {
           try { ws.close(); } catch (_) {}
         }
       }
-    }, 15000);
+    }, 8000);
   };
 
   ws.onmessage = (ev) => {
@@ -687,7 +907,7 @@ function connectWs() {
     if (msg.type === "state") setState(msg.value);
     if (msg.type === "speech") {
       appendLog(`Raajarvis: ${msg.text}`);
-      playSpeech(msg.audio);
+      playSpeech(msg.audio, msg.text);
     }
     if (msg.type === "pong") lastPong = Date.now();
     if (msg.type === "interrupted") interruptJarvis();
@@ -727,10 +947,11 @@ function connectWs() {
     setConn(false);
     if (!reconnectTimer && apiBase()) {
       reconnectAttempts += 1;
-      const delay = Math.min(2500 + reconnectAttempts * 1000, 12000);
+      const delay = Math.min(1500 + reconnectAttempts * 800, 8000);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connectWs();
+        refreshStatus();
       }, delay);
     }
   };
@@ -973,13 +1194,18 @@ async function refreshMetrics() {
   if (navigator.getBattery) {
     try {
       const batt = await navigator.getBattery();
-      setBar(barBatt, battVal, (batt.level || 0) * 100);
+      const pct = (batt.level || 0) * 100;
+      setBar(barBatt, battVal, pct);
+      if (mobBatt) mobBatt.textContent = `${Math.round(pct)}%`;
     } catch {
       setBar(barBatt, battVal, 0);
+      if (mobBatt) mobBatt.textContent = "—";
     }
   } else {
     if (battVal) battVal.textContent = "N/A";
+    if (mobBatt) mobBatt.textContent = "N/A";
   }
+  if (memVal && mobMem) mobMem.textContent = memVal.textContent;
 }
 
 function updateMemoryHint(entries, chatCount = 0) {
@@ -1031,8 +1257,9 @@ async function refreshStatus() {
   } catch {
     setConn(false);
     updateModelDisplay({ ok: false });
-    if (statusHint) statusHint.textContent = "Mac offline — start jarvis-stack";
+    if (statusHint) statusHint.textContent = "Mac offline — reconnecting…";
     setHeroMode("OFFLINE");
+    reconnectIfStale();
   }
 }
 
@@ -1161,6 +1388,14 @@ chatToggleBtn?.addEventListener("click", () => {
   logPanel?.classList.toggle("hidden");
 });
 
+gmailConnectBtn?.addEventListener("click", async () => {
+  try {
+    await connectGmail();
+  } catch (e) {
+    if (gmailStatusLine) gmailStatusLine.textContent = e.message || "Connect failed";
+  }
+});
+
 $("#saveSettingsBtn").addEventListener("click", async () => {
   try {
     await applySettingsToBackend();
@@ -1255,6 +1490,8 @@ async function boot() {
   renderRecentApps();
   localAlarmItems = loadLocalAlarms();
   renderRemindersList();
+  ensureNotifications();
+  restoreLocalAlarmsOnBoot();
 
   if (window.__JARVIS_DISCOVERY__?.url && !isAutoConnect()) {
     const fresh = await discoverBackend();
@@ -1282,6 +1519,7 @@ async function boot() {
       loadSettingsFromBackend();
       setInterval(refreshMetrics, 8000);
       setInterval(loadReminders, 30000);
+      startHealthWatch();
       if (sessionStorage.getItem(VOICE_ACTIVE_KEY) === "1") {
         setTimeout(() => activateVoice(), 800);
       }
@@ -1296,6 +1534,7 @@ async function boot() {
       appendLog("SYS: Connected.");
       await connectDiscovered(url);
       loadSettingsFromBackend();
+      startHealthWatch();
       return;
     }
   }

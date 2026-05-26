@@ -15,19 +15,42 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Header, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.jarvis_tts import synthesize_bytes, set_disable_local_playback, warmup_tts
 
 try:
-    from actions.gmail_client import gmail_configured, save_gmail_credentials
+    from actions.gmail_client import (
+        gmail_configured,
+        gmail_status,
+        oauth_callback,
+        oauth_redirect_uris,
+        oauth_start,
+        save_gmail_client_id,
+        save_gmail_credentials,
+    )
 except ImportError:
     def gmail_configured() -> bool:
         return False
 
+    def gmail_status() -> dict:
+        return {"configured": False, "client_id": "", "connected": False}
+
+    def save_gmail_client_id(*_a, **_k) -> None:
+        pass
+
     def save_gmail_credentials(*_a, **_k) -> None:
         pass
+
+    def oauth_start(*_a, **_k) -> dict:
+        return {}
+
+    def oauth_callback(*_a, **_k) -> str:
+        return ""
+
+    def oauth_redirect_uris(*_a, **_k) -> list:
+        return []
 
 try:
     from actions.reminder import list_reminders
@@ -77,7 +100,11 @@ class PWAService:
     def _on_ui_event(self, event: dict) -> None:
         if not self._loop:
             return
-        if event.get("type") in ("speech", "alarm"):
+        if event.get("type") == "speech":
+            # Deliver to every connected client — phone may have multiple tabs/sockets.
+            asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
+            return
+        if event.get("type") == "alarm":
             target = event.get("client_id") or self.ui.client_id
             asyncio.run_coroutine_threadsafe(
                 self._send_to_client(target, event), self._loop
@@ -261,7 +288,7 @@ async def status():
         "muted": service.ui.muted,
         "lan_url": f"http://{_lan_ip()}:{_server_port()}",
         "public_url": public,
-        "model": cfg.get("ollama_model", "llama3.2:latest"),
+        "model": cfg.get("ollama_model", "qwen2.5:7b"),
         "provider": "ollama",
         "has_file": bool(service.ui.current_file),
         "file_name": Path(service.ui.current_file).name if service.ui.current_file else None,
@@ -295,7 +322,7 @@ async def config():
     cfg = load_llm_config()
     return {
         "provider": cfg.get("llm_provider", "ollama"),
-        "model": cfg.get("ollama_model", "llama3.2:latest"),
+        "model": cfg.get("ollama_model", "qwen2.5:7b"),
         "voice": cfg.get("tts_voice", "en-US-AndrewMultilingualNeural"),
     }
 
@@ -309,6 +336,7 @@ async def get_settings():
         "tts_rate": cfg.get("tts_rate", "+8%"),
         "owner": cfg.get("owner_name", "Raaj"),
         "gmail_configured": gmail_configured(),
+        "gmail": gmail_status(),
     }
 
 
@@ -328,14 +356,60 @@ async def post_settings(payload: dict):
     return {"ok": True}
 
 
+@app.get("/api/gmail/status")
+async def get_gmail_status():
+    return gmail_status()
+
+
 @app.post("/api/gmail/settings")
 async def post_gmail_settings(payload: dict):
     client_id = str(payload.get("client_id") or "").strip()
+    if client_id:
+        save_gmail_client_id(client_id)
+    # Legacy full creds still supported
     client_secret = str(payload.get("client_secret") or "").strip()
     refresh_token = str(payload.get("refresh_token") or "").strip()
     if client_id and client_secret and refresh_token:
         save_gmail_credentials(client_id, client_secret, refresh_token)
-    return {"ok": True, "configured": gmail_configured()}
+    return {"ok": True, **gmail_status()}
+
+
+@app.get("/api/gmail/oauth/start")
+async def gmail_oauth_start():
+    base = _public_url() or f"http://127.0.0.1:{_server_port()}"
+    try:
+        data = oauth_start(base)
+        return RedirectResponse(data["auth_url"])
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/gmail/oauth/callback")
+async def gmail_oauth_callback(code: str = "", state: str = "", error: str = ""):
+    if error:
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;padding:2rem'>"
+            f"<h2>Gmail connection failed</h2><p>{error}</p></body></html>",
+            status_code=400,
+        )
+    try:
+        msg = oauth_callback(code, state)
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;padding:2rem;text-align:center'>"
+            f"<h2>✓ {msg}</h2><p>Return to JARVIS — you can close this tab.</p></body></html>"
+        )
+    except RuntimeError as e:
+        return HTMLResponse(
+            f"<html><body style='font-family:sans-serif;padding:2rem'>"
+            f"<h2>Connection failed</h2><p>{e}</p></body></html>",
+            status_code=400,
+        )
+
+
+@app.get("/api/gmail/oauth/redirect-uris")
+async def gmail_redirect_uris():
+    base = _public_url() or f"http://127.0.0.1:{_server_port()}"
+    return {"redirect_uris": oauth_redirect_uris(base)}
 
 
 @app.post("/api/interrupt")
@@ -540,6 +614,16 @@ async def app_js():
 @app.get("/styles.css")
 async def styles_css():
     return _static_file("styles.css", "text/css")
+
+
+@app.get("/discovery.js")
+async def discovery_js():
+    return _static_file("discovery.js", "application/javascript")
+
+
+@app.get("/config.js")
+async def config_js():
+    return _static_file("config.js", "application/javascript")
 
 
 @app.get("/icons/{name}")

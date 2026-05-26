@@ -14,6 +14,7 @@ from actions.flight_finder import flight_finder
 from actions.open_app import open_app
 from actions.weather_report import weather_action
 from actions.send_message import send_message
+from actions.office_compose import office_compose
 from actions.reminder import reminder
 from actions.computer_settings import computer_settings
 from actions.screen_processor import screen_process
@@ -97,6 +98,12 @@ async def execute_tool(
                     args.get("time", ""),
                     args.get("message", ""),
                 )
+
+        elif name == "office_compose":
+            r = await loop.run_in_executor(
+                None, lambda: office_compose(parameters=args, response=None, player=ui)
+            )
+            result = r or "Document ready, sir."
 
         elif name == "gmail":
             r = await loop.run_in_executor(
