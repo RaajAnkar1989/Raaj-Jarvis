@@ -7,7 +7,7 @@
 | **Local (recommended)** | `llm_provider: ollama` | Whisper STT + neural JARVIS TTS | Free |
 | **Cloud (original)** | `llm_provider: gemini` | Gemini Live real-time audio (Charon voice) | Gemini API usage |
 
-Use **`python main.py`** for the full MARK XXXIX desktop experience (HUD, file drop, system monitor).  
+Use **`python main.py`** for the desktop experience (HUD, file drop, system monitor).  
 Use **`./run_pwa.sh`** for phone/tablet access. Deploy the UI to **Netlify** (see **`DEPLOY-PWA.md`**) — backend with Ollama runs on your Mac.
 
 ---
