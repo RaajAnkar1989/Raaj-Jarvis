@@ -1,8 +1,4 @@
-# Raaj-Jarvis / MARK XXXIX (Local)
-
-Fork of [FatihMakes/Mark-XXXIX](https://github.com/FatihMakes/Mark-XXXIX) with **free local Ollama** support — same desktop app, same tools, same UI. Optional Gemini cloud mode if you add an API key.
-
----
+# Raaj-Jarvis (Local)
 
 ## Two modes (same app)
 
@@ -76,8 +72,3 @@ python main.py
 | **Gemini key** | Optional — only for cloud mode |
 
 ---
-
-## Upstream
-
-Based on [FatihMakes/Mark-XXXIX](https://github.com/FatihMakes/Mark-XXXIX).  
-License: [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) — personal, non-commercial use.
