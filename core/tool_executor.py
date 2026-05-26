@@ -45,6 +45,18 @@ async def execute_tool(
         value = args.get("value", "")
         if key and value:
             update_memory({category: {key: {"value": value}}})
+            try:
+                from memory.store import remember_fact
+
+                cid = getattr(ui, "client_id", None) or ""
+                remember_fact(
+                    f"{category}/{key}: {value}",
+                    mem_type="preference" if category == "preferences" else "note",
+                    client_id=cid,
+                    tags=[category, key],
+                )
+            except Exception:
+                pass
             print(f"[Memory] save_memory: {category}/{key} = {value}")
         if not ui.muted:
             ui.set_state("LISTENING")

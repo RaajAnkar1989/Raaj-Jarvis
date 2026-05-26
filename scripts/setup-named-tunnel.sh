@@ -83,6 +83,9 @@ mkdir -p "$ROOT/data"
 echo "$PUBLIC_URL" > "$ROOT/data/public_url.txt"
 echo "$TUNNEL_NAME" > "$ROOT/data/tunnel-name.txt"
 echo "$HOSTNAME" > "$ROOT/data/tunnel-hostname.txt"
+echo "named" > "$ROOT/data/tunnel-mode.txt"
+
+bash "$ROOT/scripts/publish-named-config.sh" "$PUBLIC_URL" || true
 
 echo ""
 echo "Step 4/4 — Saved configuration."

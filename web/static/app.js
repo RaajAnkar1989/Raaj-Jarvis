@@ -67,6 +67,7 @@ const memVal = $("#memVal");
 const diskVal = $("#diskVal");
 const battVal = $("#battVal");
 const remindersList = $("#remindersList");
+const agentTasksList = $("#agentTasksList");
 const jarvisStatus = $("#jarvisStatus");
 const visualizer = $("#visualizer");
 const mobBatt = $("#mobBatt");
@@ -196,14 +197,77 @@ function updateSessionUi(state) {
   if (mobSession) mobSession.textContent = label;
 }
 
-function updateTimerUi(count) {
+function updateTimerUi(count, agentCount = 0) {
   const n = Number(count) || 0;
+  const a = Number(agentCount) || 0;
   if (timerCount) timerCount.textContent = String(n);
   if (barTimers) barTimers.style.width = `${Math.min(100, n * 25)}%`;
   if (mobTimers) mobTimers.textContent = String(n);
   if (taskCount) {
-    taskCount.textContent = n ? `${n} reminder${n === 1 ? "" : "s"}` : "No open tasks";
+    const parts = [];
+    if (a) parts.push(`${a} agent`);
+    if (n) parts.push(`${n} reminder${n === 1 ? "" : "s"}`);
+    taskCount.textContent = parts.length ? parts.join(" · ") : "No open tasks";
   }
+}
+
+function renderAgentTasksList(items) {
+  if (!agentTasksList) return 0;
+  agentTasksList.innerHTML = "";
+  const active = (items || []).filter(
+    (t) => !["completed", "cancelled", "done"].includes((t.status || "").toLowerCase())
+  );
+  if (!active.length) {
+    const li = document.createElement("li");
+    li.className = "reminder-empty jarvis-hud-empty";
+    li.textContent = "No agent tasks";
+    agentTasksList.appendChild(li);
+    return 0;
+  }
+  active.slice(0, 6).forEach((item) => {
+    const li = document.createElement("li");
+    const st = (item.status || "pending").toLowerCase();
+    if (st === "running") li.classList.add("agent-running");
+    else if (st === "failed") li.classList.add("agent-failed");
+    else if (st === "completed") li.classList.add("agent-done");
+    const label = item.goal || item.title || "Task";
+    li.textContent = `${label.slice(0, 44)}${label.length > 44 ? "…" : ""} · ${st}`;
+    agentTasksList.appendChild(li);
+  });
+  return active.length;
+}
+
+async function loadAgentTasks() {
+  const base = apiBase();
+  if (!base) return [];
+  try {
+    const res = await fetch(`${base}/api/agent/tasks`, { headers: apiHeaders() });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.tasks || [];
+  } catch {
+    return [];
+  }
+}
+
+async function refreshTasksPanel() {
+  const [agentItems, reminderCount] = await Promise.all([
+    loadAgentTasks(),
+    (async () => {
+      const base = apiBase();
+      let serverItems = [];
+      if (base) {
+        try {
+          const res = await fetch(`${base}/api/reminders`, { headers: apiHeaders() });
+          if (res.ok) serverItems = (await res.json()).reminders || [];
+        } catch { /* ignore */ }
+      }
+      renderRemindersList(serverItems);
+      return serverItems.length + loadLocalAlarms().length;
+    })(),
+  ]);
+  const agentActive = renderAgentTasksList(agentItems);
+  updateTimerUi(reminderCount, agentActive);
 }
 
 function loadPrefs() {
@@ -932,9 +996,15 @@ function connectWs() {
       else if (lower.includes("whatsapp")) pushRecent("WhatsApp");
     }
     if (msg.type === "state") setState(msg.value);
-    if (msg.type === "speech") {
+    if (msg.type === "speech_text") {
       appendLog(`Raajarvis: ${msg.text}`);
+      return;
+    }
+    if (msg.type === "speech") {
       playSpeech(msg.audio, msg.text);
+    }
+    if (msg.type === "agent_task") {
+      refreshTasksPanel();
     }
     if (msg.type === "pong") lastPong = Date.now();
     if (msg.type === "interrupted") interruptJarvis();
@@ -1307,7 +1377,7 @@ function renderRemindersList(serverItems = []) {
     li.className = "reminder-empty";
     li.textContent = "No reminders";
     remindersList.appendChild(li);
-    updateTimerUi(0);
+    updateTimerUi(0, 0);
     return;
   }
   for (const item of merged.slice(0, 8)) {
@@ -1320,27 +1390,10 @@ function renderRemindersList(serverItems = []) {
     li.appendChild(document.createTextNode(item.message || "Reminder"));
     remindersList.appendChild(li);
   }
-  updateTimerUi(merged.length);
 }
 
 async function loadReminders() {
-  const base = apiBase();
-  let serverItems = [];
-  if (base) {
-    try {
-      const res = await fetch(`${base}/api/reminders`, { headers: apiHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        serverItems = data.reminders || [];
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  renderRemindersList(serverItems);
-  updateTimerUi(
-    serverItems.length + loadLocalAlarms().length
-  );
+  await refreshTasksPanel();
 }
 
 function openSettings() {
@@ -1548,7 +1601,7 @@ async function boot() {
       refreshStatus();
       loadSettingsFromBackend();
       setInterval(refreshMetrics, 8000);
-      setInterval(loadReminders, 30000);
+      setInterval(refreshTasksPanel, 15000);
       startHealthWatch();
       if (sessionStorage.getItem(VOICE_ACTIVE_KEY) === "1") {
         setTimeout(() => activateVoice(), 800);

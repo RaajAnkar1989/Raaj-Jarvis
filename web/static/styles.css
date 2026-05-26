@@ -253,7 +253,27 @@ html, body {
   border-left: 2px solid #f87171;
   margin-bottom: 4px;
 }
+.jarvis-hud-subtitle {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-size: 0.5rem;
+  opacity: 0.85;
+}
+.agent-tasks-list li.agent-running {
+  border-left-color: #fbbf24;
+  color: #fde68a;
+}
+.agent-tasks-list li.agent-done {
+  border-left-color: #34d399;
+}
+.agent-tasks-list li.agent-failed {
+  border-left-color: #f87171;
+}
 .reminders-list li .rem-time {
+  display: block;
+  color: var(--pri);
+  font-weight: 600;
+}
   display: block;
   color: var(--pri);
   font-weight: 600;

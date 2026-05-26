@@ -109,9 +109,14 @@ class WebUIAdapter:
         })
 
     def emit_speech(self, text: str) -> None:
-        """Synthesize TTS and push a speech event to all listeners."""
+        """Push text immediately, synthesize audio in parallel."""
         target_client = self.client_id
         epoch = self._speech_epoch
+
+        event_text: dict = {"type": "speech_text", "text": text}
+        if target_client:
+            event_text["client_id"] = target_client
+        self._broadcast(event_text)
 
         def _run() -> None:
             if epoch != self._speech_epoch:
@@ -131,10 +136,11 @@ class WebUIAdapter:
         threading.Thread(target=_run, daemon=True).start()
 
     def emit_speech_sync(self, text: str) -> None:
-        """Blocking TTS for web — caller should already be on a worker thread."""
+        """Blocking TTS — text first, then audio."""
         epoch = self._speech_epoch
         if epoch != self._speech_epoch:
             return
+        self._broadcast({"type": "speech_text", "text": text, "client_id": self.client_id})
         audio = synthesize_bytes(text)
         if epoch != self._speech_epoch:
             return

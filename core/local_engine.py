@@ -25,6 +25,8 @@ from core.client_memory import (
     load_chat_history,
 )
 from memory.memory_manager import format_memory_for_prompt, load_memory
+from memory.retrieval import format_relevant_for_prompt, get_relevant_memory
+from memory.working import append_turn as working_append
 
 FAST_MODEL = "qwen2.5:7b"
 
@@ -297,6 +299,18 @@ class JarvisLocal:
         else:
             jarvis_speak(clean)
 
+    def speak_immediate(self, text: str) -> None:
+        """Short ack while planning — text in UI immediately, TTS in parallel."""
+        if not text or not text.strip():
+            return
+        clean = _short_speak(text.strip())
+        web = getattr(self.ui, "web_mode", False)
+        if web:
+            self.ui.write_log(f"Jarvis: {clean}")
+            threading.Thread(target=self._web_tts, args=(clean,), daemon=True).start()
+        else:
+            self.speak(clean)
+
     def speak_error(self, tool_name: str, error: str):
         self.ui.write_log(f"ERR: {tool_name} — {str(error)[:120]}")
         self.speak(f"Sorry sir, {tool_name} failed.")
@@ -420,6 +434,20 @@ class JarvisLocal:
                 text = tail
         return text
 
+    def _inject_semantic_memory(self, user_text: str, client_id: str | None) -> None:
+        """Attach top-k semantic memories before LLM call (non-destructive)."""
+        try:
+            relevant = get_relevant_memory(user_text, client_id=client_id or "", top_k=5)
+            block = format_relevant_for_prompt(relevant)
+            if not block:
+                return
+            if self._messages and self._messages[0].get("role") == "system":
+                base = self._messages[0]["content"]
+                if block not in base:
+                    self._messages[0]["content"] = base + "\n" + block
+        except Exception:
+            pass
+
     async def _handle_user_message(self, text: str):
         from core.stt_filters import prepare_user_text
 
@@ -451,8 +479,25 @@ class JarvisLocal:
 
         client_id = getattr(self.ui, "client_id", None)
         auto_remember_from_text(client_id, text)
+        working_append(client_id, "user", text)
         append_chat_turn(client_id, "user", text)
         self._messages.append({"role": "user", "content": text})
+
+        # Confirm pending multi-step agent plan
+        try:
+            from agentic.orchestrator import run_pending_plan
+
+            pending = await run_pending_plan(self, text)
+            if pending:
+                self._messages.append({"role": "assistant", "content": pending})
+                append_chat_turn(client_id, "assistant", pending)
+                working_append(client_id, "assistant", pending)
+                self._is_busy = False
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                return
+        except Exception:
+            traceback.print_exc()
 
         route = try_fast_route(text)
         if route:
@@ -472,6 +517,24 @@ class JarvisLocal:
             if not self.ui.muted:
                 self.ui.set_state("LISTENING")
             return
+
+        # Multi-step agent path (optional — falls back to normal chat)
+        try:
+            from agentic.orchestrator import run_agent_turn, should_use_agent
+
+            if should_use_agent(text):
+                self._inject_semantic_memory(text, client_id)
+                agent_reply = await run_agent_turn(self, text)
+                if agent_reply:
+                    append_chat_turn(client_id, "assistant", agent_reply)
+                    self._messages.append({"role": "assistant", "content": agent_reply})
+                    working_append(client_id, "assistant", agent_reply)
+                    self._is_busy = False
+                    if not self.ui.muted:
+                        self.ui.set_state("LISTENING")
+                    return
+        except Exception:
+            traceback.print_exc()
 
         current_file = getattr(self.ui, "current_file", None)
         if current_file and _FILE_Q_RE.search(text):
@@ -507,6 +570,7 @@ class JarvisLocal:
             return
 
         use_tools = _needs_tools(text)
+        self._inject_semantic_memory(text, client_id)
 
         if not use_tools:
             try:

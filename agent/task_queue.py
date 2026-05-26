@@ -95,6 +95,7 @@ class TaskQueue:
             self._condition.notify()
 
         print(f"[TaskQueue] 📥 Task queued: [{task_id}] {goal[:60]}")
+        _emit_task_event(task)
         return task_id
 
     def cancel(self, task_id: str) -> bool:
@@ -162,6 +163,7 @@ class TaskQueue:
                     daemon=True,
                     name=f"AgentTask-{task.task_id}"
                 ).start()
+                _emit_task_event(task)
 
     def _next_task(self) -> Task | None:
         if self._active_count >= self._max_concurrent:
@@ -196,6 +198,7 @@ class TaskQueue:
                     print(f"[TaskQueue] ⚠️ on_complete callback error: {e}")
 
             print(f"[TaskQueue] ✅ Completed: [{task.task_id}]")
+            _emit_task_event(task)
 
         except Exception as e:
             with self._lock:
@@ -203,6 +206,7 @@ class TaskQueue:
                 task.error  = str(e)
                 self._active_count -= 1
             print(f"[TaskQueue] ❌ Failed: [{task.task_id}] {e}")
+            _emit_task_event(task)
 
         with self._condition:
             self._condition.notify()
@@ -210,6 +214,27 @@ class TaskQueue:
 _queue        = TaskQueue()
 _queue_started = False
 _queue_lock    = threading.Lock()
+_task_listener: Callable | None = None
+
+
+def set_task_listener(listener: Callable | None) -> None:
+    global _task_listener
+    _task_listener = listener
+
+
+def _emit_task_event(task: Task) -> None:
+    if not _task_listener:
+        return
+    try:
+        _task_listener({
+            "task_id": task.task_id,
+            "goal": task.goal[:120],
+            "status": task.status.value,
+            "result": (str(task.result)[:200] if task.result else ""),
+            "error": task.error or "",
+        })
+    except Exception:
+        pass
 
 
 def get_queue() -> TaskQueue:

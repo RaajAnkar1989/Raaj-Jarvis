@@ -21,6 +21,7 @@ data/tunnel.log
 data/tunnel-name.txt
 data/tunnel-hostname.txt
 data/gmail_pkce.json
+data/memory.db
 data/logs/
 
 # OS

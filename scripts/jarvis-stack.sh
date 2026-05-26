@@ -65,13 +65,23 @@ start_tunnel() {
     TUNNEL_NAME="$(cat "$ROOT/data/tunnel-name.txt")"
   fi
   if [ ! -f "${HOME}/.cloudflared/config.yml" ]; then
-    echo "No named tunnel — using free mode. Run: ./scripts/setup-free-https.sh"
+    echo "No named tunnel — using free mode. Run: ./scripts/setup-named-tunnel.sh"
     echo "free" > "$MODE_FILE"
     bash "$ROOT/scripts/free-tunnel.sh" start-daemon
     return 0
   fi
   nohup cloudflared tunnel run "$TUNNEL_NAME" >>"$LOG_DIR/tunnel.log" 2>&1 &
   echo $! > "$TUNNEL_PID_FILE"
+
+  if [ -f "$ROOT/data/public_url.txt" ]; then
+    local stable_url
+    stable_url="$(cat "$ROOT/data/public_url.txt" | tr -d ' ')"
+    if [[ "$stable_url" =~ ^https:// ]]; then
+      echo "Named tunnel URL: $stable_url"
+      bash "$ROOT/scripts/publish-backend-url.sh" "$stable_url" 2>/dev/null || true
+      bash "$ROOT/scripts/publish-named-config.sh" "$stable_url" 2>/dev/null || true
+    fi
+  fi
 }
 
 stop_all() {

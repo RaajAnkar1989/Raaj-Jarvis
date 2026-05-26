@@ -107,6 +107,9 @@ class PWAService:
             # Deliver to every connected client — phone may have multiple tabs/sockets.
             asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
             return
+        if event.get("type") == "speech_text":
+            asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
+            return
         if event.get("type") == "alarm":
             target = event.get("client_id") or self.ui.client_id
             asyncio.run_coroutine_threadsafe(
@@ -159,6 +162,22 @@ class PWAService:
         self._loop = asyncio.get_event_loop()
         self.ui.bind_loop(self._loop)
         set_disable_local_playback(True)
+
+        def _on_agent_task(event: dict) -> None:
+            if self._loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._broadcast({"type": "agent_task", **event}),
+                    self._loop,
+                )
+
+        try:
+            from agent.task_queue import get_queue, set_task_listener
+
+            set_task_listener(_on_agent_task)
+            get_queue()
+        except Exception:
+            pass
+
         await asyncio.gather(
             asyncio.to_thread(warmup_stt),
             asyncio.to_thread(warmup_tts),
@@ -280,6 +299,47 @@ async def post_memory(payload: dict, x_jarvis_client_id: str | None = Header(def
     return {"ok": True, "entries": load_client_memory(cid).get("entries") or {}}
 
 
+@app.get("/api/memory/semantic")
+async def semantic_memory(q: str = "", x_jarvis_client_id: str | None = Header(default=None)):
+    from memory.retrieval import get_relevant_memory
+
+    cid = x_jarvis_client_id or ""
+    items = get_relevant_memory(q, client_id=cid, top_k=8) if q.strip() else []
+    return {"query": q, "memories": items}
+
+
+@app.get("/api/agent/status")
+async def agent_status():
+    from agentic.task_status import list_all_agent_tasks
+    from memory.db import init_db
+
+    init_db()
+    tasks = list_all_agent_tasks()
+    return {
+        "ok": True,
+        "agentic": True,
+        "tasks": tasks,
+        "active_count": sum(1 for t in tasks if t.get("status") in ("running", "pending", "in_progress")),
+    }
+
+
+@app.get("/api/agent/tasks")
+async def agent_tasks():
+    from agentic.task_status import list_all_agent_tasks
+
+    return {"tasks": list_all_agent_tasks()}
+
+
+@app.get("/api/agent/tasks/{task_id}")
+async def agent_task_detail(task_id: str):
+    from agent.task_queue import get_queue
+
+    detail = get_queue().get_status(task_id)
+    if detail:
+        return detail
+    return JSONResponse({"error": "not found"}, status_code=404)
+
+
 @app.get("/api/status")
 async def status():
     await service.ensure_started()
@@ -295,6 +355,7 @@ async def status():
         "provider": "ollama",
         "has_file": bool(service.ui.current_file),
         "file_name": Path(service.ui.current_file).name if service.ui.current_file else None,
+        "agentic": True,
     }
 
 
