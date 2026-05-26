@@ -16,6 +16,11 @@ memory/*.json
 *.log
 data/uploads/
 data/client_memory/
+data/public_url.txt
+data/tunnel.log
+data/tunnel-name.txt
+data/tunnel-hostname.txt
+data/logs/
 
 # OS
 .DS_Store

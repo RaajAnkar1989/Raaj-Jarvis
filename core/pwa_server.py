@@ -28,6 +28,7 @@ from core.web_ui import WebUIAdapter
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "web" / "static"
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
+PUBLIC_URL_FILE = BASE_DIR / "data" / "public_url.txt"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Raaj-Jarvis PWA", version="2.0.0")
@@ -115,6 +116,20 @@ def _server_port() -> int:
     return int(os.environ.get("JARVIS_PORT", "8765"))
 
 
+def _public_url() -> str | None:
+    env = os.environ.get("JARVIS_PUBLIC_URL", "").strip()
+    if env.startswith("https://"):
+        return env.rstrip("/")
+    try:
+        if PUBLIC_URL_FILE.exists():
+            url = PUBLIC_URL_FILE.read_text(encoding="utf-8").strip()
+            if url.startswith("https://"):
+                return url.rstrip("/")
+    except Exception:
+        pass
+    return None
+
+
 def _client_id(header: str | None = None, body: str | None = None) -> str | None:
     return (header or body or "").strip() or None
 
@@ -131,6 +146,11 @@ def _host_metrics() -> dict:
         }
     except Exception:
         return {"cpu": 0, "memory": 0, "disk": 0}
+
+
+@app.get("/api/health")
+async def health():
+    return {"ok": True}
 
 
 @app.get("/api/metrics")
@@ -165,15 +185,34 @@ async def post_memory(payload: dict, x_jarvis_client_id: str | None = Header(def
 async def status():
     await service.ensure_started()
     cfg = load_llm_config()
+    public = _public_url()
     return {
         "ok": True,
         "state": service.ui._state,
         "muted": service.ui.muted,
         "lan_url": f"http://{_lan_ip()}:{_server_port()}",
+        "public_url": public,
         "model": cfg.get("ollama_model", "llama3.2:latest"),
         "provider": "ollama",
         "has_file": bool(service.ui.current_file),
         "file_name": Path(service.ui.current_file).name if service.ui.current_file else None,
+    }
+
+
+@app.get("/api/tunnel")
+async def tunnel_info():
+    public = _public_url()
+    port = _server_port()
+    return {
+        "public_url": public,
+        "lan_url": f"http://{_lan_ip()}:{port}",
+        "local_url": f"http://127.0.0.1:{port}",
+        "ready": bool(public),
+        "hint": (
+            "Run ./run_remote.sh on your Mac, then paste public_url in Netlify PWA settings."
+            if not public
+            else None
+        ),
     }
 
 

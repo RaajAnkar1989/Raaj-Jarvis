@@ -22,7 +22,7 @@ echo "  Local:    http://localhost:8765"
 IP=$(python -c "import socket;s=socket.socket();s.connect(('8.8.8.8',80));print(s.getsockname()[0]);s.close()" 2>/dev/null || echo "YOUR-IP")
 echo "  Phone:    http://${IP}:8765  (same Wi‑Fi)"
 echo ""
-echo "  Netlify:  deploy web/static, then set backend URL in app settings"
+echo "  Netlify:  run ./run_remote.sh for HTTPS tunnel URL → paste in PWA settings"
 echo "  See DEPLOY-PWA.md for full guide"
 echo "  ─────────────────────────────────────"
 echo ""

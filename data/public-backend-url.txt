@@ -1,0 +1,1 @@
+# JARVIS backend URL — your Mac updates this automatically via scripts/publish-backend-url.sh

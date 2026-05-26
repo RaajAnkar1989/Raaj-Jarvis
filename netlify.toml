@@ -5,6 +5,9 @@
 [build.environment]
   NODE_VERSION = "20"
   NETLIFY_SKIP_PYTHON_INSTALL = "true"
+  # Set in Netlify UI for https://raajarvis.netlify.app/
+  # JARVIS_API_URL = https://jarvis.yourdomain.com
+  # See SETUP-RAAJARVIS.md
 
 [[headers]]
   for = "/sw.js"

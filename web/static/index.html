@@ -13,19 +13,24 @@
   <link rel="apple-touch-icon" href="/icons/face.png" />
   <link rel="stylesheet" href="/styles.css" />
   <title>MARK XXXIX — JARVIS</title>
+  <script src="/discovery.js"></script>
+  <script src="/config.js"></script>
 </head>
 <body>
   <div id="setupOverlay" class="overlay hidden">
     <div class="modal">
       <h2>Connect to JARVIS Core</h2>
       <p class="modal-sub">
-        The app UI runs on Netlify. Your <strong>local Ollama brain</strong> runs on your Mac via the backend server.
+        Usually <strong>raajarvis.netlify.app</strong> connects automatically when your Mac is on.
       </p>
-      <label class="field-label" for="backendUrl">Backend URL</label>
-      <input id="backendUrl" type="url" placeholder="https://your-tunnel.example.com or http://192.168.1.5:8765" />
+      <label class="field-label" for="backendUrl">Backend URL (manual fallback)</label>
+      <input id="backendUrl" type="url" placeholder="https://….trycloudflare.com" />
       <p class="modal-hint">
-        Same Wi‑Fi: <code>http://YOUR-MAC-IP:8765</code><br />
-        Remote: run <code>./run_pwa.sh</code> on your Mac + Cloudflare Tunnel / ngrok.
+        Free auto-connect: run once on Mac<br />
+        <code>./scripts/setup-free-https.sh</code>
+      </p>
+      <p class="modal-hint">
+        Same Wi‑Fi only: open <code>http://192.168.0.64:8765</code> on your phone.
       </p>
       <div class="modal-actions">
         <button id="saveBackendBtn" type="button" class="primary">Connect</button>

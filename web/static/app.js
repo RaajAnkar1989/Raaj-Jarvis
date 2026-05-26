@@ -51,10 +51,15 @@ function clientId() {
 }
 
 function apiHeaders(extra = {}) {
-  return {
+  const headers = {
     "X-Jarvis-Client-Id": clientId(),
     ...extra,
   };
+  const base = apiBase();
+  if (base && base.includes(".loca.lt")) {
+    headers["Bypass-Tunnel-Reminder"] = "true";
+  }
+  return headers;
 }
 
 function setBar(el, valEl, pct) {
@@ -89,7 +94,61 @@ function savedApi() {
   return v ? v.replace(/\/$/, "") : "";
 }
 
+function bakedApi() {
+  const v = window.__JARVIS_API__;
+  return v && String(v).trim() ? String(v).trim().replace(/\/$/, "") : "";
+}
+
+function isAutoConnect() {
+  return !!(bakedApi() || window.__JARVIS_NETLIFY_PROXY__);
+}
+
+async function discoverBackend() {
+  const cfg = window.__JARVIS_DISCOVERY__;
+  if (!cfg?.url) return null;
+  try {
+    const res = await fetch(`${cfg.url}?t=${Date.now()}`, {
+      signal: AbortSignal.timeout(12000),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const raw = (await res.text()).trim();
+    const line = raw.split("\n").find((l) => l.startsWith("https://")) || raw;
+    const url = line.trim().replace(/\/$/, "");
+    if (!url.startsWith("https://")) return null;
+    await testBackend(url);
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverBackendWithRetry(maxMs = 90000) {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const url = await discoverBackend();
+    if (url) return url;
+    statusHint.textContent = "Looking for JARVIS on your Mac…";
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+  return null;
+}
+
+async function connectDiscovered(url) {
+  localStorage.setItem(STORAGE_KEY, url);
+  backendLabel.textContent = shortBackend(url);
+  setupOverlay.classList.add("hidden");
+  connectWs();
+  refreshStatus();
+  setInterval(refreshMetrics, 4000);
+}
+
 function apiBase() {
+  if (window.__JARVIS_NETLIFY_PROXY__) {
+    return window.location.origin;
+  }
+  const baked = bakedApi();
+  if (baked) return baked;
   const saved = savedApi();
   if (saved) return saved;
   const { origin, port, hostname } = window.location;
@@ -100,6 +159,11 @@ function apiBase() {
 }
 
 function wsUrl() {
+  const direct = window.__JARVIS_WS_URL__;
+  if (direct && String(direct).trim()) {
+    const u = String(direct).trim().replace(/\/$/, "");
+    return u.endsWith("/ws") ? u : `${u}/ws`;
+  }
   return apiBase().replace(/^http/, "ws") + "/ws";
 }
 
@@ -215,8 +279,17 @@ function playSpeech(base64Audio) {
 }
 
 async function testBackend(url) {
-  const res = await fetch(`${url.replace(/\/$/, "")}/api/status`, {
-    signal: AbortSignal.timeout(8000),
+  const clean = url.replace(/\/$/, "");
+  const headers = {};
+  if (clean.includes(".loca.lt")) {
+    headers["Bypass-Tunnel-Reminder"] = "true";
+  }
+  if (clean.includes("ngrok")) {
+    headers["ngrok-skip-browser-warning"] = "true";
+  }
+  const res = await fetch(`${clean}/api/status`, {
+    headers,
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) throw new Error("Backend unreachable");
   return res.json();
@@ -227,7 +300,7 @@ async function saveBackend(url) {
   if (!clean) throw new Error("Enter a backend URL");
   if (window.location.protocol === "https:" && clean.startsWith("http://")) {
     throw new Error(
-      "HTTPS app cannot use http:// backend. Use Cloudflare Tunnel (https) or open http://YOUR-MAC-IP:8765 directly."
+      "HTTPS app cannot use http:// backend. On your Mac run ./run_remote.sh and paste the https:// URL shown."
     );
   }
   const data = await testBackend(clean);
@@ -242,6 +315,12 @@ async function saveBackend(url) {
 }
 
 function showSetupIfNeeded() {
+  if (isAutoConnect()) {
+    backendLabel.textContent = window.__JARVIS_NETLIFY_PROXY__
+      ? "Auto (raajarvis.netlify.app)"
+      : shortBackend(bakedApi());
+    return false;
+  }
   if (!apiBase()) {
     setupOverlay.classList.remove("hidden");
     return true;
@@ -673,8 +752,27 @@ if ("serviceWorker" in navigator) {
 setInterval(tickClock, 1000);
 tickClock();
 
-if (!showSetupIfNeeded()) {
-  connectWs();
-  refreshStatus();
-  setInterval(refreshMetrics, 4000);
+async function boot() {
+  if (isAutoConnect() || apiBase()) {
+    if (!showSetupIfNeeded()) {
+      connectWs();
+      refreshStatus();
+      setInterval(refreshMetrics, 4000);
+    }
+    return;
+  }
+
+  if (window.__JARVIS_DISCOVERY__?.url) {
+    statusHint.textContent = "Looking for JARVIS on your Mac…";
+    const url = await discoverBackendWithRetry(90000);
+    if (url) {
+      appendLog("SYS: Auto-connected to JARVIS core.");
+      await connectDiscovered(url);
+      return;
+    }
+  }
+
+  showSetupIfNeeded();
 }
+
+boot();
