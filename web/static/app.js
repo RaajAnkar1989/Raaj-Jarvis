@@ -110,7 +110,9 @@ const VOICE_ACTIVE_KEY = "raajarvis_voice_on";
 let lastLogText = "";
 let lastLogAt = 0;
 let chatSending = false;
-let micKeepAliveTimer = null;
+let wsReady = false;
+let httpOk = false;
+let audioUnlocked = false;
 
 let heartbeatTimer = null;
 let lastPong = Date.now();
@@ -985,6 +987,22 @@ function isAutoConnect() {
   return !!(bakedApi() || window.__JARVIS_NETLIFY_PROXY__);
 }
 
+function voiceApiBase() {
+  const saved = savedApi();
+  if (saved) return saved;
+  return settingsApiBase();
+}
+
+async function ensureWsBackendUrl() {
+  if (savedApi()) return savedApi();
+  const fresh = await discoverBackend();
+  if (fresh) {
+    localStorage.setItem(STORAGE_KEY, fresh);
+    return fresh;
+  }
+  return "";
+}
+
 function wsUrl() {
   const direct = window.__JARVIS_WS_URL__;
   if (direct && String(direct).trim()) {
@@ -992,10 +1010,85 @@ function wsUrl() {
     return u.endsWith("/ws") ? u : `${u}/ws`;
   }
   const saved = savedApi();
-  if ((window.__JARVIS_NETLIFY_PROXY__ || isNetlifyApp()) && saved) {
-    return saved.replace(/^http/, "ws") + "/ws";
+  if (saved) {
+    return saved.replace(/^http/i, "ws") + "/ws";
   }
-  return apiBase().replace(/^http/, "ws") + "/ws";
+  // Netlify HTTP proxy does not support WebSocket — must use Mac tunnel URL.
+  const base = apiBase();
+  if (base && !isNetlifyApp() && !window.__JARVIS_NETLIFY_PROXY__) {
+    return base.replace(/^http/i, "ws") + "/ws";
+  }
+  return "";
+}
+
+async function unlockAudioOutput() {
+  if (audioUnlocked) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) {
+      const ctx = new Ctx();
+      await ctx.resume();
+      const buffer = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.start(0);
+      await ctx.close();
+    }
+    const silent = new Audio(
+      "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwmHAAAAAAD/+1DEAAAAGkAAAAAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/7UMQAAAAYAAAAgAAA0gAAABFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQ=="
+    );
+    silent.volume = 0.01;
+    silent.playsInline = true;
+    await silent.play();
+    audioUnlocked = true;
+  } catch {
+    /* user gesture may be required */
+  }
+}
+
+async function fetchAndPlayTts(text) {
+  if (!text) return false;
+  await unlockAudioOutput();
+  const base = voiceApiBase();
+  if (!base) return false;
+  try {
+    const res = await fetch(`${base}/api/tts`, {
+      method: "POST",
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      stopPlayback();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudio = audio;
+      jarvisSpeaking = true;
+      setState("SPEAKING");
+      updateMicState();
+      audio.playsInline = true;
+      audio.setAttribute("playsinline", "true");
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio === audio) currentAudio = null;
+        jarvisSpeaking = false;
+        updateMicState();
+        if (voiceActive && !vadFrame) vadLoop();
+        resolve(true);
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        jarvisSpeaking = false;
+        updateMicState();
+        resolve(false);
+      };
+      audio.play().catch(() => resolve(false));
+    });
+  } catch {
+    return false;
+  }
 }
 
 function shortBackend(url) {
@@ -1036,13 +1129,30 @@ function appendLog(text) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
-function setConn(ok) {
-  connDot.className = "conn-dot " + (ok ? "online" : "offline");
-  connDot.title = ok ? "Connected to backend" : "Backend offline";
-  if (hudEl) hudEl.classList.toggle("online", ok);
-  if (!ok) updateSessionUi("OFFLINE");
+function updateConnDot() {
+  const live = httpOk && wsReady;
+  connDot.className = "conn-dot " + (live ? "online" : httpOk ? "online" : "offline");
+  connDot.title = live
+    ? "Voice link live — audio plays on this device"
+    : httpOk
+      ? "API connected — voice link connecting…"
+      : "Backend offline";
+  if (hudEl) hudEl.classList.toggle("online", live);
 }
 
+function setConn(ok) {
+  httpOk = ok;
+  if (!ok) updateSessionUi("OFFLINE");
+  updateConnDot();
+}
+
+function setWsConn(ok) {
+  wsReady = ok;
+  updateConnDot();
+  if (micNote && ok && voiceActive) {
+    micNote.textContent = "Mic on — voice replies play on this device";
+  }
+}
 function heroStatusText(state) {
   const s = (state || "").toUpperCase();
   if (s === "LISTENING" || s === "RECORDING") return "Listening";
@@ -1143,11 +1253,14 @@ function speakBrowserFallback(text) {
 
 function playSpeech(base64Audio, text = "") {
   if (!base64Audio) {
-    speakBrowserFallback(text);
+    fetchAndPlayTts(text).then((ok) => {
+      if (!ok) speakBrowserFallback(text);
+    });
     return;
   }
   audioQueue = audioQueue.then(() => new Promise((resolve) => {
     stopPlayback();
+    unlockAudioOutput();
     const bytes = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
     const blob = new Blob([bytes], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
@@ -1156,24 +1269,31 @@ function playSpeech(base64Audio, text = "") {
     jarvisSpeaking = true;
     setState("SPEAKING");
     updateMicState();
-    audio.onended = () => {
+    const done = () => {
       URL.revokeObjectURL(url);
+      resolve();
+    };
+    audio.onended = () => {
       if (currentAudio === audio) currentAudio = null;
       jarvisSpeaking = false;
       updateMicState();
       if (voiceActive && !vadFrame) vadLoop();
-      resolve();
+      done();
     };
-    audio.onerror = () => {
+    audio.onerror = async () => {
       URL.revokeObjectURL(url);
       jarvisSpeaking = false;
       updateMicState();
-      speakBrowserFallback(text);
-      resolve();
+      const ok = await fetchAndPlayTts(text);
+      if (!ok) speakBrowserFallback(text);
+      done();
     };
-    audio.play().catch(() => {
-      speakBrowserFallback(text);
-      resolve();
+    audio.playsInline = true;
+    audio.setAttribute("playsinline", "true");
+    audio.play().catch(async () => {
+      const ok = await fetchAndPlayTts(text);
+      if (!ok) speakBrowserFallback(text);
+      done();
     });
   }));
 }
@@ -1224,24 +1344,34 @@ function showSetupIfNeeded() {
   return false;
 }
 
-function connectWs() {
-  const base = apiBase();
-  if (!base) return;
+async function connectWs() {
   if (wsConnecting || (ws && ws.readyState === WebSocket.OPEN)) return;
+
+  if (isNetlifyApp() || window.__JARVIS_NETLIFY_PROXY__) {
+    await ensureWsBackendUrl();
+  }
+
+  const url = wsUrl();
+  if (!url) {
+    setWsConn(false);
+    appendLog("ERR: Voice link unavailable — is your Mac running jarvis-stack?");
+    return;
+  }
+
   wsConnecting = true;
   if (ws) {
     try { ws.close(); } catch (_) {}
     ws = null;
   }
 
-  ws = new WebSocket(wsUrl());
+  ws = new WebSocket(url);
 
   ws.onopen = () => {
     wsConnecting = false;
     reconnectAttempts = 0;
     lastPong = Date.now();
-    setConn(true);
-    appendLog("SYS: Connected to Raajarvis.");
+    setWsConn(true);
+    appendLog("SYS: Voice link connected.");
     if (!logEl.querySelector(".ai")) {
       appendLog("Raajarvis: Iron HUD active. I'm online whenever your Mac is running.");
     }
@@ -1328,6 +1458,7 @@ function connectWs() {
   ws.onclose = () => {
     wsConnecting = false;
     ws = null;
+    setWsConn(false);
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     heartbeatTimer = null;
     setConn(false);
@@ -1361,15 +1492,18 @@ async function sendChat(text, source = "text") {
 
 async function transcribeBlob(blob) {
   if (blob.size < 1500) throw new Error("too short");
+  const base = voiceApiBase();
+  if (!base) throw new Error("backend not connected");
   const fd = new FormData();
-  fd.append("audio", blob, "speech.webm");
-  const res = await fetch(`${apiBase()}/api/transcribe`, {
+  fd.append("audio", blob, blob.type?.includes("mp4") ? "speech.mp4" : "speech.webm");
+  const res = await fetch(`${base}/api/transcribe`, {
     method: "POST",
     headers: apiHeaders(),
     body: fd,
   });
   if (!res.ok) throw new Error("transcribe failed");
-  return (await res.json()).text;
+  const data = await res.json();
+  return data.text;
 }
 
 function getMimeType() {
@@ -1513,6 +1647,13 @@ function stopMicKeepAlive() {
 async function activateVoice() {
   if (voiceActive || muted) return;
   await ensureNotifications();
+  await unlockAudioOutput();
+  if (isNetlifyApp() || window.__JARVIS_NETLIFY_PROXY__) {
+    await ensureWsBackendUrl();
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      await connectWs();
+    }
+  }
   try {
     vadStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true },
@@ -1527,7 +1668,7 @@ async function activateVoice() {
     sessionStorage.setItem(VOICE_ACTIVE_KEY, "1");
     watchMicStream();
     startMicKeepAlive();
-    appendLog("SYS: Mic on — stays active until you tap mic again.");
+    appendLog("SYS: Mic on — speak naturally. Voice plays on this device.");
     setState("LISTENING");
     updateMicState();
     vadLoop();
@@ -1922,7 +2063,8 @@ async function boot() {
 
   if (isAutoConnect() || apiBase()) {
     if (!showSetupIfNeeded()) {
-      connectWs();
+      await ensureWsBackendUrl();
+      await connectWs();
       refreshStatus();
       loadSettingsFromBackend();
       setInterval(refreshMetrics, 8000);

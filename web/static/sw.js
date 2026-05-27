@@ -1,4 +1,4 @@
-const CACHE = "raaj-jarvis-v4";
+const CACHE = "raaj-jarvis-v5";
 const SHELL = ["/styles.css", "/icons/icon.svg", "/icons/face.png", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
