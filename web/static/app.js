@@ -17,6 +17,31 @@ const brainHint = $("#brainHint");
 const settingsModel = $("#settingsModel");
 const settingsProvider = $("#settingsProvider");
 const settingsConn = $("#settingsConn");
+const settingsTokens = $("#settingsTokens");
+const settingsLatency = $("#settingsLatency");
+const providerBadge = $("#providerBadge");
+const fallbackBadge = $("#fallbackBadge");
+const hudProviderBadge = $("#hudProviderBadge");
+const hudTokenBadge = $("#hudTokenBadge");
+const hudLatencyBadge = $("#hudLatencyBadge");
+const enableGemini = $("#enableGemini");
+const enableOpenai = $("#enableOpenai");
+const enableAnthropic = $("#enableAnthropic");
+const geminiApiKey = $("#geminiApiKey");
+const openaiApiKey = $("#openaiApiKey");
+const anthropicApiKey = $("#anthropicApiKey");
+const geminiModel = $("#geminiModel");
+const openaiModel = $("#openaiModel");
+const anthropicModel = $("#anthropicModel");
+const cloudTokenBudget = $("#cloudTokenBudget");
+const dailyCloudLimit = $("#dailyCloudLimit");
+const waContactName = $("#waContactName");
+const waContactPhone = $("#waContactPhone");
+const waAddContactBtn = $("#waAddContactBtn");
+const waContactsList = $("#waContactsList");
+const waTestOpenBtn = $("#waTestOpenBtn");
+const waStatusLine = $("#waStatusLine");
+const waHudStatus = $("#waHudStatus");
 const todayTime = $("#todayTime");
 const todayDate = $("#todayDate");
 const timerCount = $("#timerCount");
@@ -161,18 +186,146 @@ function renderRecentApps(items = []) {
 }
 
 function updateModelDisplay(data) {
-  const model = data?.model || "—";
-  const provider = (data?.provider || "ollama").toUpperCase();
-  const online = !!data?.ok;
+  const model = data?.model || data?.active_model || "—";
+  const provider = (data?.provider || data?.active_provider || "ollama").toUpperCase();
+  const online = data?.ok !== false;
+  const tokens = data?.cloud_tokens_today ?? 0;
+  const latency = data?.latency_ms;
+  const isFallback = !!data?.fallback;
+
   if (settingsModel) settingsModel.textContent = model;
   if (settingsProvider) settingsProvider.textContent = provider;
   if (settingsConn) settingsConn.textContent = online ? "Connected" : "Offline";
+  if (settingsTokens) settingsTokens.textContent = String(tokens);
+  if (settingsLatency) {
+    settingsLatency.textContent = latency != null ? `${latency} ms` : "—";
+  }
   if (modelLabel) modelLabel.textContent = model;
   if (brainHint) {
     brainHint.textContent = online
       ? `${provider} · ${model}`
       : "ADD BRAIN KEY IN SETTINGS";
   }
+
+  const local = provider === "OLLAMA";
+  if (providerBadge) {
+    providerBadge.textContent = local ? "LOCAL" : provider;
+    providerBadge.classList.toggle("provider-badge--local", local);
+    providerBadge.classList.toggle("provider-badge--cloud", !local);
+  }
+  if (fallbackBadge) {
+    fallbackBadge.classList.toggle("hidden", !isFallback);
+  }
+  if (hudProviderBadge) {
+    hudProviderBadge.textContent = provider;
+    hudProviderBadge.classList.toggle("provider-badge--local", local);
+    hudProviderBadge.classList.toggle("provider-badge--cloud", !local);
+  }
+  if (hudTokenBadge) hudTokenBadge.textContent = `${tokens} tok`;
+  if (hudLatencyBadge) {
+    hudLatencyBadge.textContent = latency != null ? `${latency} ms` : "— ms";
+  }
+}
+
+function applyProviderSettingsUI(providers = {}) {
+  if (enableGemini) enableGemini.checked = providers.enable_gemini !== false;
+  if (enableOpenai) enableOpenai.checked = !!providers.enable_openai;
+  if (enableAnthropic) enableAnthropic.checked = !!providers.enable_anthropic;
+  if (geminiModel && providers.gemini_model) geminiModel.value = providers.gemini_model;
+  if (openaiModel && providers.openai_model) openaiModel.value = providers.openai_model;
+  if (anthropicModel && providers.anthropic_model) anthropicModel.value = providers.anthropic_model;
+  if (cloudTokenBudget && providers.cloud_token_budget) {
+    cloudTokenBudget.value = providers.cloud_token_budget;
+  }
+  const limits = providers.provider_daily_limits || {};
+  const daily = limits.gemini || limits.openai || limits.anthropic || 50000;
+  if (dailyCloudLimit) dailyCloudLimit.value = daily;
+  if (geminiApiKey && providers.gemini_api_key_masked) {
+    geminiApiKey.placeholder = providers.gemini_api_key_set
+      ? `Saved: ${providers.gemini_api_key_masked}`
+      : "Paste Gemini API key";
+  }
+  if (openaiApiKey && providers.openai_api_key_masked) {
+    openaiApiKey.placeholder = providers.openai_api_key_set
+      ? `Saved: ${providers.openai_api_key_masked}`
+      : "Paste OpenAI API key";
+  }
+  if (anthropicApiKey && providers.anthropic_api_key_masked) {
+    anthropicApiKey.placeholder = providers.anthropic_api_key_set
+      ? `Saved: ${providers.anthropic_api_key_masked}`
+      : "Paste Anthropic API key";
+  }
+}
+
+async function loadProviderSettings() {
+  const base = apiBase();
+  if (!base) return;
+  try {
+    const res = await fetch(`${base}/api/providers`, { headers: apiHeaders() });
+    if (!res.ok) return;
+    const data = await res.json();
+    applyProviderSettingsUI(data.providers || {});
+    if (settingsTokens && data.cloud_tokens_today != null) {
+      settingsTokens.textContent = String(data.cloud_tokens_today);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function collectProviderPayload() {
+  const limit = parseInt(dailyCloudLimit?.value || "0", 10) || 0;
+  const payload = {
+    enable_gemini: !!enableGemini?.checked,
+    enable_openai: !!enableOpenai?.checked,
+    enable_anthropic: !!enableAnthropic?.checked,
+    gemini_model: geminiModel?.value,
+    openai_model: openaiModel?.value,
+    anthropic_model: anthropicModel?.value,
+    cloud_token_budget: parseInt(cloudTokenBudget?.value || "1200", 10) || 1200,
+    provider_daily_limits: {
+      gemini: limit,
+      openai: limit,
+      anthropic: limit,
+    },
+  };
+  const gk = geminiApiKey?.value?.trim();
+  const ok = openaiApiKey?.value?.trim();
+  const ak = anthropicApiKey?.value?.trim();
+  if (gk) payload.gemini_api_key = gk;
+  if (ok) payload.openai_api_key = ok;
+  if (ak) payload.anthropic_api_key = ak;
+  return payload;
+}
+
+async function saveProviderSettings() {
+  const base = apiBase();
+  if (!base) return;
+  await fetch(`${base}/api/providers/settings`, {
+    method: "POST",
+    headers: apiHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(collectProviderPayload()),
+  });
+}
+
+async function testProviderConnection(name) {
+  const base = apiBase();
+  if (!base) throw new Error("Backend not connected");
+  await saveProviderSettings();
+  const res = await fetch(`${base}/api/providers/test`, {
+    method: "POST",
+    headers: apiHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ provider: name }),
+  });
+  const data = await res.json();
+  const el = $(`#${name}TestStatus`);
+  if (el) {
+    el.textContent = data.ok
+      ? `OK · ${data.model} · ${data.latency_ms}ms`
+      : data.error || "Failed";
+    el.className = `test-status ${data.ok ? "ok" : "err"}`;
+  }
+  return data;
 }
 
 function updateSessionUi(state) {
@@ -314,6 +467,92 @@ function updateGmailStatusUI(status) {
   }
 }
 
+async function loadWhatsappContacts() {
+  if (!settingsApiBase()) return;
+  try {
+    const data = await apiFetchJson("/api/whatsapp/contacts");
+    renderWhatsappContacts(data.contacts || {});
+  } catch {
+    /* ignore */
+  }
+}
+
+function renderWhatsappContacts(contacts = {}) {
+  const entries = Object.entries(contacts);
+  if (waHudStatus) {
+    waHudStatus.textContent = entries.length
+      ? `${entries.length} contact${entries.length === 1 ? "" : "s"} ready`
+      : "Add contacts in Settings → WhatsApp";
+  }
+  if (!waContactsList) return;
+  waContactsList.innerHTML = "";
+  if (!entries.length) {
+    const li = document.createElement("li");
+    li.className = "jarvis-hud-empty";
+    li.textContent = "No contacts saved yet";
+    waContactsList.appendChild(li);
+    return;
+  }
+  for (const [name, phone] of entries) {
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = `${name} · ${phone}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost";
+    btn.textContent = "Remove";
+    btn.addEventListener("click", async () => {
+      try {
+        await apiFetchJson("/api/whatsapp/contacts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "remove", name }),
+        });
+        await loadWhatsappContacts();
+      } catch (e) {
+        if (waStatusLine) waStatusLine.textContent = e.message || "Could not remove contact";
+      }
+    });
+    li.appendChild(label);
+    li.appendChild(btn);
+    waContactsList.appendChild(li);
+  }
+}
+
+async function addWhatsappContact() {
+  const name = waContactName?.value?.trim();
+  const phone = waContactPhone?.value?.trim();
+  if (!settingsApiBase()) throw new Error("Backend not connected");
+  if (!name || !phone) throw new Error("Enter name and phone number");
+  await apiFetchJson("/api/whatsapp/contacts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, phone }),
+  });
+  if (waContactName) waContactName.value = "";
+  if (waContactPhone) waContactPhone.value = "";
+  if (waStatusLine) {
+    waStatusLine.textContent = `Saved ${name}. Try: message ${name} on WhatsApp saying hello`;
+  }
+  await loadWhatsappContacts();
+}
+
+async function testWhatsappOpen() {
+  if (!settingsApiBase()) throw new Error("Backend not connected");
+  if (waStatusLine) waStatusLine.textContent = "Opening WhatsApp on your Mac…";
+  const data = await apiFetchJson("/api/whatsapp/open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (waStatusLine) {
+    waStatusLine.textContent = data.ok
+      ? "WhatsApp opened on your Mac."
+      : data.message || "Could not open WhatsApp.";
+  }
+  return data;
+}
+
 async function loadGmailStatus() {
   const base = apiBase();
   if (!base) return;
@@ -389,6 +628,7 @@ async function applySettingsToBackend() {
       owner: "Raaj",
     }),
   });
+  await saveProviderSettings();
   const gid = gmailClientId?.value?.trim();
   if (gid) {
     await fetch(`${base}/api/gmail/settings`, {
@@ -422,6 +662,8 @@ async function loadSettingsFromBackend() {
     }
     const statusRes = await fetch(`${base}/api/status`, { headers: apiHeaders() });
     if (statusRes.ok) updateModelDisplay(await statusRes.json());
+    await loadProviderSettings();
+    await loadWhatsappContacts();
     await loadGmailStatus();
   } catch {
     /* ignore */
@@ -586,6 +828,43 @@ function oauthBase() {
     return window.location.origin.replace(/\/$/, "");
   }
   return apiBase();
+}
+
+function settingsApiBase() {
+  if (isNetlifyApp() || window.__JARVIS_NETLIFY_PROXY__) {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  const base = apiBase();
+  if (base) return base;
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") {
+    return "http://127.0.0.1:8765";
+  }
+  return "";
+}
+
+async function apiFetchJson(path, options = {}) {
+  const base = settingsApiBase();
+  if (!base) throw new Error("Backend not connected");
+  const res = await fetch(`${base}${path}`, {
+    ...options,
+    headers: apiHeaders(options.headers || {}),
+  });
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("json")) {
+    const text = (await res.text()).trim();
+    if (text.startsWith("<!DOCTYPE") || text.startsWith("<html")) {
+      throw new Error(
+        "Backend returned a web page instead of JSON. Reconnect in Settings or restart jarvis-stack on your Mac."
+      );
+    }
+    throw new Error(text.slice(0, 140) || `Request failed (${res.status})`);
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `Request failed (${res.status})`);
+  }
+  return data;
 }
 
 function setChatOpen(open) {
@@ -1034,6 +1313,16 @@ function connectWs() {
     if (msg.type === "memory") {
       updateMemoryHint(msg.entries || {}, msg.chat_count || 0);
     }
+    if (msg.type === "provider") {
+      updateModelDisplay({
+        ok: true,
+        provider: msg.provider,
+        model: msg.model,
+        fallback: msg.fallback,
+        latency_ms: msg.latency_ms,
+        cloud_tokens_today: msg.cloud_tokens_today ?? 0,
+      });
+    }
   };
 
   ws.onclose = () => {
@@ -1340,7 +1629,8 @@ async function refreshStatus() {
     const st = data.state || "READY";
     setState(st);
     if (statusHint) {
-      statusHint.textContent = `Ollama · ${data.model || "ready"}`;
+      const prov = (data.provider || "ollama").toUpperCase();
+      statusHint.textContent = `${prov} · ${data.model || "ready"}`;
       statusHint.classList.remove("hidden");
     }
     if (data.file_name) {
@@ -1351,6 +1641,7 @@ async function refreshStatus() {
     await refreshMetrics();
     await loadMemory();
     await loadReminders();
+    await loadWhatsappContacts();
   } catch {
     setConn(false);
     updateModelDisplay({ ok: false });
@@ -1471,12 +1762,46 @@ chatToggleBtn?.addEventListener("click", () => {
 
 closeChatBtn?.addEventListener("click", () => setChatOpen(false));
 
+waAddContactBtn?.addEventListener("click", async () => {
+  try {
+    await addWhatsappContact();
+  } catch (e) {
+    if (waStatusLine) waStatusLine.textContent = e.message || "Could not save contact";
+  }
+});
+
+waTestOpenBtn?.addEventListener("click", async () => {
+  try {
+    await testWhatsappOpen();
+  } catch (e) {
+    if (waStatusLine) waStatusLine.textContent = e.message || "Test failed";
+  }
+});
+
 gmailConnectBtn?.addEventListener("click", async () => {
   try {
     await connectGmail();
   } catch (e) {
     if (gmailStatusLine) gmailStatusLine.textContent = e.message || "Connect failed";
   }
+});
+
+document.querySelectorAll("[data-test-provider]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const name = btn.getAttribute("data-test-provider");
+    btn.disabled = true;
+    try {
+      await testProviderConnection(name);
+    } catch (e) {
+      const el = $(`#${name}TestStatus`);
+      if (el) {
+        el.textContent = e.message || "Test failed";
+        el.className = "test-status err";
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
 });
 
 $("#saveSettingsBtn").addEventListener("click", async () => {

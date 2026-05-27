@@ -669,6 +669,105 @@ html, body {
 .model-box p span { color: var(--text-dim); }
 .model-box p strong { color: #f0f9ff; text-align: right; word-break: break-all; }
 
+.provider-badges, .jarvis-live-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.jarvis-live-stats {
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.provider-badge, .stat-badge {
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  color: var(--pri);
+  background: rgba(34, 211, 238, 0.08);
+}
+.provider-badge--cloud {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+  background: rgba(251, 191, 36, 0.1);
+}
+.stat-badge {
+  color: var(--text-dim);
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(0, 0, 0, 0.25);
+}
+.provider-block {
+  margin: 10px 0;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.12);
+  background: rgba(0, 0, 0, 0.15);
+}
+.provider-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+.toggle-row input { accent-color: var(--pri); }
+.key-link {
+  font-size: 0.62rem;
+  color: var(--pri);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.key-link:hover { text-decoration: underline; }
+.provider-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.test-btn {
+  font-size: 0.65rem;
+  padding: 4px 8px;
+}
+.test-status {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+}
+.test-status.ok { color: #4ade80; }
+.test-status.err { color: #f87171; }
+.wa-contacts-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.wa-contacts-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.68rem;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.08);
+  color: #e2e8f0;
+}
+.wa-contacts-list button {
+  font-size: 0.6rem;
+  padding: 2px 6px;
+}
+
 .field-label {
   display: block;
   font-size: 0.65rem;

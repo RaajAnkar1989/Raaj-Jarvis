@@ -1,5 +1,6 @@
 # Secrets — never commit API keys
 config/api_keys.json
+config/whatsapp_contacts.json
 
 # Python
 __pycache__/
@@ -23,6 +24,8 @@ data/tunnel-hostname.txt
 data/gmail_pkce.json
 data/memory.db
 data/logs/
+data/.jarvis_key
+data/provider_usage.json
 
 # OS
 .DS_Store

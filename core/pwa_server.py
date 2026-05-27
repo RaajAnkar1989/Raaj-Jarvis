@@ -62,7 +62,7 @@ except ImportError:
         return []
 from core.client_memory import load_client_memory, load_chat_history, remember
 from core.file_index import index_file
-from core.llm_config import load_llm_config, save_llm_config
+from core.llm_config import load_llm_config, provider_settings_public, save_llm_config
 from core.voice_input import transcribe_file, warmup_stt
 from core.web_ui import WebUIAdapter
 
@@ -345,14 +345,23 @@ async def status():
     await service.ensure_started()
     cfg = load_llm_config()
     public = _public_url()
+    from core.llm.usage_tracker import get_usage_today, total_cloud_tokens_today
+
+    engine = service.engine
+    active_provider = getattr(engine, "_active_provider", "ollama") if engine else "ollama"
+    active_model = getattr(engine, "_active_model", cfg.get("ollama_model")) if engine else cfg.get("ollama_model")
     return {
         "ok": True,
         "state": service.ui._state,
         "muted": service.ui.muted,
         "lan_url": f"http://{_lan_ip()}:{_server_port()}",
         "public_url": public,
-        "model": cfg.get("ollama_model", "qwen2.5:7b"),
-        "provider": "ollama",
+        "model": active_model or cfg.get("ollama_model", "qwen2.5:7b"),
+        "provider": active_provider,
+        "active_provider": active_provider,
+        "fallback_available": provider_settings_public(),
+        "usage_today": get_usage_today(),
+        "cloud_tokens_today": total_cloud_tokens_today(),
         "has_file": bool(service.ui.current_file),
         "file_name": Path(service.ui.current_file).name if service.ui.current_file else None,
         "agentic": True,
@@ -401,7 +410,69 @@ async def get_settings():
         "owner": cfg.get("owner_name", "Raaj"),
         "gmail_configured": gmail_configured(),
         "gmail": gmail_status(),
+        "providers": provider_settings_public(),
     }
+
+
+@app.get("/api/providers")
+async def get_providers():
+    from core.llm.usage_tracker import get_usage_today, total_cloud_tokens_today
+
+    return {
+        "providers": provider_settings_public(),
+        "usage_today": get_usage_today(),
+        "cloud_tokens_today": total_cloud_tokens_today(),
+    }
+
+
+@app.post("/api/providers/settings")
+async def post_provider_settings(payload: dict):
+    allowed = {
+        "enable_ollama", "enable_gemini", "enable_openai", "enable_anthropic",
+        "gemini_model", "openai_model", "anthropic_model", "ollama_model",
+        "cloud_token_budget", "cloud_max_output_tokens", "provider_daily_limits",
+        "gemini_api_key", "openai_api_key", "anthropic_api_key",
+    }
+    data = {k: payload[k] for k in allowed if k in payload}
+    if data:
+        save_llm_config(data)
+    return {"ok": True, "providers": provider_settings_public()}
+
+
+@app.post("/api/providers/test")
+async def test_provider_endpoint(payload: dict):
+    from core.providers.test_connection import test_provider
+
+    name = str(payload.get("provider") or "ollama").lower()
+    return test_provider(name)
+
+
+@app.get("/api/whatsapp/contacts")
+async def get_whatsapp_contacts():
+    from actions.whatsapp import load_contacts
+
+    return {"contacts": load_contacts()}
+
+
+@app.post("/api/whatsapp/contacts")
+async def post_whatsapp_contacts(payload: dict):
+    from actions.whatsapp import load_contacts, remove_contact, save_contact, save_contacts
+
+    if isinstance(payload.get("contacts"), dict):
+        save_contacts(payload["contacts"])
+    elif payload.get("action") == "remove" and payload.get("name"):
+        remove_contact(str(payload["name"]))
+    elif payload.get("name") and payload.get("phone"):
+        save_contact(str(payload["name"]), str(payload["phone"]))
+    return {"ok": True, "contacts": load_contacts()}
+
+
+@app.post("/api/whatsapp/open")
+async def open_whatsapp_app():
+    from actions.whatsapp import open_whatsapp
+
+    ok = open_whatsapp()
+    return {"ok": ok, "message": "WhatsApp opened on your Mac." if ok else "Could not open WhatsApp."}
 
 
 @app.post("/api/settings")

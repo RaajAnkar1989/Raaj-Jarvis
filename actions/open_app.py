@@ -117,6 +117,20 @@ def _launch_windows(app_name: str) -> bool:
 
 
 def _launch_macos(app_name: str) -> bool:
+    key = app_name.lower().strip()
+    if "whatsapp" in key:
+        for cmd in (
+            ["open", "-b", "net.whatsapp.WhatsApp"],
+            ["open", "-a", "WhatsApp"],
+            ["open", "-a", "WhatsApp.app"],
+        ):
+            try:
+                result = subprocess.run(cmd, capture_output=True, timeout=10)
+                if result.returncode == 0:
+                    time.sleep(1.5)
+                    return True
+            except Exception:
+                continue
 
     try:
         result = subprocess.run(

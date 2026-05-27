@@ -143,15 +143,19 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "send_message",
-        "description": "Sends a text message via WhatsApp, Telegram, or other messaging platform.",
+        "description": (
+            "Sends a WhatsApp message on the Mac. Use for: send/text/message someone on WhatsApp, "
+            "or any text message request. Requires receiver name and message_text. "
+            "Add phone numbers in config/whatsapp_contacts.json for best results."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "receiver":     {"type": "STRING", "description": "Recipient contact name"},
+                "receiver":     {"type": "STRING", "description": "Recipient name or phone number"},
                 "message_text": {"type": "STRING", "description": "The message to send"},
-                "platform":     {"type": "STRING", "description": "Platform: WhatsApp, Telegram, etc."}
+                "platform":     {"type": "STRING", "description": "Platform (default WhatsApp)"}
             },
-            "required": ["receiver", "message_text", "platform"]
+            "required": ["receiver", "message_text"]
         }
     },
     {

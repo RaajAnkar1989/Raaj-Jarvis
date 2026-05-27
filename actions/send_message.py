@@ -4,6 +4,8 @@ import sys
 import time
 from pathlib import Path
 
+from actions.whatsapp import send_whatsapp
+
 try:
     import pyautogui
     pyautogui.FAILSAFE = True
@@ -149,14 +151,16 @@ def _desktop_send(app_name: str, receiver: str, message: str) -> str:
     time.sleep(0.3)
     return f"Message sent to {receiver} via {app_name}."
 
+
 def _send_whatsapp(receiver: str, message: str) -> str:
-    return _desktop_send("WhatsApp", receiver, message)
+    return send_whatsapp(receiver, message)
+
 
 def _send_telegram(receiver: str, message: str) -> str:
     return _desktop_send("Telegram", receiver, message)
 
-def _send_signal(receiver: str, message: str) -> str:
-    return _desktop_send("Signal", receiver, message)
+
+def _send_signal(receiver: str, message: str) -> str:    return _desktop_send("Signal", receiver, message)
 
 
 def _send_discord(receiver: str, message: str) -> str:
@@ -245,9 +249,11 @@ def send_message(
         return "Please specify a recipient."
     if not message_text:
         return "Please specify the message content."
-    if not _PYAUTOGUI:
-        return "PyAutoGUI is not installed — cannot control the desktop."
 
+    platform_key = platform.lower()
+    needs_gui = platform_key not in ("whatsapp", "wp", "wapp")
+    if needs_gui and not _PYAUTOGUI:
+        return "PyAutoGUI is not installed — cannot control the desktop."
     preview = message_text[:50] + ("…" if len(message_text) > 50 else "")
     print(f"[SendMessage] 📨 {platform} → {receiver}: {preview}")
     if player:

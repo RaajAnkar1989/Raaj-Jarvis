@@ -100,10 +100,16 @@
         </ul>
       </div>
       <div class="jarvis-hud-panel">
+        <p class="jarvis-hud-title">WhatsApp</p>
+        <p class="jarvis-hud-detail" id="waHudStatus">Add contacts in Settings</p>
+        <p class="jarvis-hud-tip">Say: message John on WhatsApp saying hello</p>
+        <p class="jarvis-hud-tip">Say: text mom saying I'll be late</p>
+      </div>
+      <div class="jarvis-hud-panel">
         <p class="jarvis-hud-title">Quick Commands</p>
-        <p class="jarvis-hud-tip">Say: open WhatsApp</p>
         <p class="jarvis-hud-tip">Say: Jarvis, set a 5 minute timer</p>
         <p class="jarvis-hud-tip">Say: Jarvis, what time is it</p>
+        <p class="jarvis-hud-tip">Say: open WhatsApp</p>
       </div>
     </aside>
 
@@ -111,6 +117,11 @@
     <div class="jarvis-center">
       <h1 class="jarvis-brand">JARVIS</h1>
       <p id="brainHint" class="jarvis-tagline">Connecting…</p>
+      <div class="jarvis-live-stats">
+        <span id="hudProviderBadge" class="provider-badge provider-badge--local">OLLAMA</span>
+        <span id="hudTokenBadge" class="stat-badge">0 tok</span>
+        <span id="hudLatencyBadge" class="stat-badge">— ms</span>
+      </div>
 
       <div id="hud" class="jarvis-orb-container">
         <div class="jarvis-ring jarvis-ring--1"></div>
@@ -160,11 +171,17 @@
     </div>
     <div class="drawer-body scroll-modal">
       <div class="model-box">
-        <h4>Local LLM</h4>
+        <h4>Active AI</h4>
         <p><span>Model</span><strong id="settingsModel">—</strong></p>
         <p><span>Provider</span><strong id="settingsProvider">Ollama</strong></p>
         <p><span>Status</span><strong id="settingsConn">Offline</strong></p>
+        <p><span>Tokens today</span><strong id="settingsTokens">0</strong></p>
+        <p><span>Latency</span><strong id="settingsLatency">—</strong></p>
         <p class="model-tag-line"><span id="modelLabel">—</span></p>
+        <div class="provider-badges">
+          <span id="providerBadge" class="provider-badge provider-badge--local">LOCAL</span>
+          <span id="fallbackBadge" class="provider-badge provider-badge--cloud hidden">CLOUD</span>
+        </div>
       </div>
       <label class="field-label" for="settingsVoice">Voice</label>
       <select id="settingsVoice">
@@ -181,6 +198,90 @@
       <label class="field-label" for="settingsSpeed">Speech speed</label>
       <input id="settingsSpeed" type="range" min="0" max="30" value="12" />
       <p class="modal-hint" id="speedLabel">Faster (+12%)</p>
+
+      <details class="settings-section" open>
+        <summary>Cloud AI (smart fallback)</summary>
+        <p class="modal-hint">
+          Local Ollama runs first. Cloud APIs activate for coding, reasoning, long context, or when local is unavailable.
+          Keys are encrypted and stored only on your Mac — never sent to this app.
+        </p>
+
+        <div class="provider-block">
+          <div class="provider-head">
+            <label class="toggle-row"><input type="checkbox" id="enableGemini" checked /><span>Gemini</span></label>
+            <a class="key-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get API Key</a>
+          </div>
+          <input id="geminiApiKey" type="password" autocomplete="off" placeholder="Paste key (blank = keep existing)" />
+          <select id="geminiModel">
+            <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+            <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+          </select>
+          <div class="provider-actions">
+            <button type="button" class="ghost test-btn" data-test-provider="gemini">Test Connection</button>
+            <span id="geminiTestStatus" class="test-status"></span>
+          </div>
+        </div>
+
+        <div class="provider-block">
+          <div class="provider-head">
+            <label class="toggle-row"><input type="checkbox" id="enableOpenai" /><span>OpenAI</span></label>
+            <a class="key-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get API Key</a>
+          </div>
+          <input id="openaiApiKey" type="password" autocomplete="off" placeholder="Paste key (blank = keep existing)" />
+          <select id="openaiModel">
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+          </select>
+          <div class="provider-actions">
+            <button type="button" class="ghost test-btn" data-test-provider="openai">Test Connection</button>
+            <span id="openaiTestStatus" class="test-status"></span>
+          </div>
+        </div>
+
+        <div class="provider-block">
+          <div class="provider-head">
+            <label class="toggle-row"><input type="checkbox" id="enableAnthropic" /><span>Anthropic</span></label>
+            <a class="key-link" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get API Key</a>
+          </div>
+          <input id="anthropicApiKey" type="password" autocomplete="off" placeholder="Paste key (blank = keep existing)" />
+          <select id="anthropicModel">
+            <option value="claude-3-5-haiku-latest">claude-3-5-haiku-latest</option>
+            <option value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest</option>
+          </select>
+          <div class="provider-actions">
+            <button type="button" class="ghost test-btn" data-test-provider="anthropic">Test Connection</button>
+            <span id="anthropicTestStatus" class="test-status"></span>
+          </div>
+        </div>
+
+        <label class="field-label" for="cloudTokenBudget">Cloud token budget (per request)</label>
+        <input id="cloudTokenBudget" type="number" min="400" max="4000" step="100" value="1200" />
+
+        <label class="field-label" for="dailyCloudLimit">Daily cloud token limit (0 = unlimited)</label>
+        <input id="dailyCloudLimit" type="number" min="0" step="1000" value="50000" />
+        <p class="modal-hint">When daily limit is reached, JARVIS falls back to local Ollama only.</p>
+      </details>
+
+      <details class="settings-section" open>
+        <summary>WhatsApp messaging</summary>
+        <p class="modal-hint">
+          JARVIS sends WhatsApp messages on your <strong>Mac</strong> (not on the phone).
+          Add contacts with international phone numbers for reliable sending.
+          Enable <strong>Accessibility</strong> for Terminal/Python in System Settings.
+        </p>
+        <label class="field-label" for="waContactName">Contact name</label>
+        <input id="waContactName" type="text" autocomplete="off" placeholder="John" />
+        <label class="field-label" for="waContactPhone">Phone (with country code)</label>
+        <input id="waContactPhone" type="tel" autocomplete="off" placeholder="+15551234567" />
+        <button id="waAddContactBtn" type="button" class="ghost">Add contact</button>
+        <ul id="waContactsList" class="wa-contacts-list">
+          <li class="jarvis-hud-empty">No contacts saved yet</li>
+        </ul>
+        <button id="waTestOpenBtn" type="button" class="primary gmail-connect-btn">Test — Open WhatsApp on Mac</button>
+        <p class="modal-hint" id="waStatusLine">Ready — say: message John on WhatsApp saying hello</p>
+      </details>
 
       <details class="settings-section">
         <summary>Gmail &amp; Calendar (optional)</summary>

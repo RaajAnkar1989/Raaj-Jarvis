@@ -37,6 +37,41 @@ _GENERIC_PLAY = re.compile(
     re.I,
 )
 
+_WHATSAPP_OPEN = re.compile(
+    r"^\s*(?:open|launch|start)\s+(?:the\s+)?(?:whatsapp|whats\s*app)\s*$",
+    re.I,
+)
+
+_WHATSAPP_SEND_PATTERNS = [
+    re.compile(
+        r"(?:send|text|message)\s+(?:a\s+)?(?:whatsapp\s+)?(?:message\s+)?(?:to\s+)?"
+        r"(.+?)\s+(?:on\s+)?(?:whatsapp\s+)?(?:saying|say|that says|to say|:)\s+(.+)",
+        re.I,
+    ),
+    re.compile(
+        r"whatsapp\s+(?:message\s+)?(.+?)\s+(?:saying|say|:)\s+(.+)",
+        re.I,
+    ),
+    re.compile(
+        r"(?:send|text)\s+(.+?)\s+(?:on\s+|via\s+)?whatsapp\s+(?:saying\s+)?(.+)",
+        re.I,
+    ),
+    re.compile(
+        r"message\s+(.+?)\s+on\s+whatsapp\s+(?:and\s+)?(?:say|saying|tell\s+(?:him|her|them))\s+(.+)",
+        re.I,
+    ),
+]
+
+_TEXT_SEND = re.compile(
+    r"(?:send|text|message)\s+(?:a\s+)?(?:message\s+)?(?:to\s+)?(.+?)\s+(?:saying|say|that says|:)\s+(.+)",
+    re.I,
+)
+
+_OTHER_PLATFORMS = re.compile(
+    r"\b(telegram|signal|discord|instagram|messenger|sms|email|gmail|mail)\b",
+    re.I,
+)
+
 _FILLER = re.compile(
     r"^(?:a\s+)?(?:nice\s+)?(?:song|music|video|something|anything)(?:\s+please)?$",
     re.I,
@@ -129,6 +164,44 @@ def _normalize_query(query: str) -> str:
     return q
 
 
+def _clean_receiver(name: str) -> str:
+    n = (name or "").strip().strip("'\"")
+    n = re.sub(r"\s+a\s+message\s*$", "", n, flags=re.I)
+    n = re.sub(r"\s+on\s+whatsapp\s*$", "", n, flags=re.I)
+    return n.strip()
+
+
+def _parse_whatsapp_send(text: str) -> dict | None:
+    t = text.strip()
+    lower = t.lower()
+    has_whatsapp = "whatsapp" in lower or "whats app" in lower
+
+    for pattern in _WHATSAPP_SEND_PATTERNS:
+        m = pattern.search(t)
+        if m:
+            receiver = _clean_receiver(m.group(1))
+            message = m.group(2).strip().strip("'\"")
+            if receiver and message and len(receiver) < 80:
+                return {
+                    "receiver": receiver,
+                    "message_text": message,
+                    "platform": "WhatsApp",
+                }
+
+    if not has_whatsapp and not _OTHER_PLATFORMS.search(lower):
+        m = _TEXT_SEND.search(t)
+        if m:
+            receiver = _clean_receiver(m.group(1))
+            message = m.group(2).strip().strip("'\"")
+            if receiver and message and len(receiver) < 80:
+                return {
+                    "receiver": receiver,
+                    "message_text": message,
+                    "platform": "WhatsApp",
+                }
+    return None
+
+
 def try_fast_route(text: str) -> tuple[str, dict] | None:
     """Return (tool_name, args) for instant execution, or None."""
     t = _clean(text)
@@ -152,7 +225,17 @@ def try_fast_route(text: str) -> tuple[str, dict] | None:
     if _GENERIC_PLAY.search(lower):
         return ("youtube_video", {"action": "play", "query": _DEFAULT_MUSIC})
 
-    app_m = re.search(r"\b(open|launch|start)\s+(chrome|safari|firefox|spotify)\b", lower)
+    if _WHATSAPP_OPEN.match(lower):
+        return ("open_app", {"app_name": "WhatsApp"})
+
+    wa = _parse_whatsapp_send(t)
+    if wa:
+        return ("send_message", wa)
+
+    app_m = re.search(
+        r"\b(open|launch|start)\s+(chrome|safari|firefox|spotify|whatsapp|telegram)\b",
+        lower,
+    )
     if app_m:
         return ("open_app", {"app_name": app_m.group(2)})
 

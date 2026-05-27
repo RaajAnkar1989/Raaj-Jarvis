@@ -64,6 +64,9 @@ def _fast_ack(tool_name: str, args: dict) -> str:
         return "One moment, sir. Checking the forecast."
     if tool_name == "reminder":
         return "Certainly, sir. Setting that timer now."
+    if tool_name == "send_message":
+        who = args.get("receiver", "them")
+        return f"Right away, sir. Sending that WhatsApp message to {who}."
     if tool_name == "office_compose":
         return "Right away, sir. Opening Office and composing that for you."
     return "Very good, sir."
@@ -153,7 +156,7 @@ def _build_system_message(client_id: str | None = None, file_ctx: str | None = N
         '"that", "it", or "next time".\n'
         "TOOLS (use when needed):\n"
         "- gmail action=list|search|read|open|draft|send|calendar — email & calendar (when connected)\n"
-        "- send_message — WhatsApp/Telegram/Signal on the Mac\n"
+        "- send_message — send WhatsApp messages (receiver + message_text; NOT open_app)\n"
         "- reminder — real alarms/reminders (date YYYY-MM-DD, time HH:MM)\n"
         "- office_compose — create Word/Excel docs visibly (topic, word_count, app=word|excel)\n"
         "- youtube_video action=play query=<song>\n"
@@ -223,6 +226,8 @@ class JarvisLocal:
         cfg = load_llm_config()
         self._base_url = cfg.get("ollama_base_url", "http://localhost:11434").rstrip("/")
         self._model = cfg.get("ollama_model") or FAST_MODEL
+        self._active_provider = "ollama"
+        self._active_model = self._model
         self._voice_mode = (cfg.get("voice_input_mode") or "always_on").lower()
         self._listen_cooldown = float(cfg.get("listen_cooldown_sec") or 1.5)
 
@@ -407,8 +412,57 @@ class JarvisLocal:
         for sentence in sentences:
             self.speak(sentence)
 
+    def _emit_provider_status(self, provider: str, model: str, *, fallback: bool = False, latency_ms: int = 0) -> None:
+        from core.llm.usage_tracker import total_cloud_tokens_today
+
+        self._active_provider = provider
+        self._active_model = model
+        if hasattr(self.ui, "_broadcast"):
+            self.ui._broadcast({
+                "type": "provider",
+                "provider": provider,
+                "model": model,
+                "fallback": fallback,
+                "latency_ms": latency_ms,
+                "cloud_tokens_today": total_cloud_tokens_today(),
+            })
+
+    def _cloud_routed_chat(
+        self,
+        user_text: str,
+        client_id: str | None,
+        reason=None,
+    ) -> str:
+        from core.llm.router import RouteReason
+        from core.providers.manager import get_provider_manager
+
+        system = self._messages[0]["content"] if self._messages else ""
+        mgr = get_provider_manager()
+        resp = mgr.complete(
+            system=system,
+            user_input=user_text,
+            history=[m for m in self._messages if m.get("role") != "system"],
+            client_id=client_id,
+            use_tools=False,
+            reason_override=reason or RouteReason.TIMEOUT_FALLBACK,
+        )
+        self._emit_provider_status(
+            resp.provider, resp.model, fallback=resp.fallback, latency_ms=resp.latency_ms
+        )
+        text = _strip_model_noise(resp.content)
+        if text:
+            self.speak(text)
+        return text
+
+    def _fallback_cloud_chat(self, user_text: str, client_id: str | None) -> str:
+        from core.llm.router import RouteReason
+
+        return self._cloud_routed_chat(user_text, client_id, RouteReason.TIMEOUT_FALLBACK)
+
     def _stream_and_speak(self, messages: list[dict]) -> str:
         """Stream Ollama tokens; speak each finished sentence immediately."""
+        cfg = load_llm_config()
+        self._emit_provider_status("ollama", cfg.get("ollama_model") or FAST_MODEL)
         buffer = ""
         full = ""
 
@@ -573,17 +627,38 @@ class JarvisLocal:
         self._inject_semantic_memory(text, client_id)
 
         if not use_tools:
+            from core.llm.router import RouteReason, route
+
+            client_id = getattr(self.ui, "client_id", None)
+            decision = route(text)
+            hard_task = decision.reason in (
+                RouteReason.CODING,
+                RouteReason.REASONING,
+                RouteReason.LONG_CONTEXT,
+                RouteReason.WEB,
+            )
             try:
-                content = await asyncio.to_thread(
-                    self._stream_and_speak, list(self._messages)
-                )
-            except requests.RequestException as e:
-                self.ui.write_log(f"ERR: Ollama — {e}")
-                self.speak("Cannot reach Ollama, sir.")
-                self._is_busy = False
-                if not self.ui.muted:
-                    self.ui.set_state("LISTENING")
-                return
+                if hard_task and decision.allow_cloud:
+                    content = await asyncio.to_thread(
+                        self._cloud_routed_chat, text, client_id, decision.reason
+                    )
+                else:
+                    content = await asyncio.to_thread(
+                        self._stream_and_speak, list(self._messages)
+                    )
+            except (requests.RequestException, RuntimeError):
+                self.ui.write_log("SYS: Local model unavailable — trying cloud fallback.")
+                try:
+                    content = await asyncio.to_thread(
+                        self._fallback_cloud_chat, text, client_id
+                    )
+                except Exception as e2:
+                    self.ui.write_log(f"ERR: All providers — {e2}")
+                    self.speak("Cannot reach AI providers, sir.")
+                    self._is_busy = False
+                    if not self.ui.muted:
+                        self.ui.set_state("LISTENING")
+                    return
 
             if content and not content.startswith("```"):
                 append_chat_turn(client_id, "assistant", content)
@@ -601,8 +676,16 @@ class JarvisLocal:
                     self._ollama_chat, list(self._messages), use_tools
                 )
             except requests.RequestException as e:
-                self.ui.write_log(f"ERR: Ollama — {e}")
-                self.speak("Cannot reach Ollama, sir.")
+                self.ui.write_log(f"ERR: Ollama tools — {e}")
+                try:
+                    reply = await asyncio.to_thread(
+                        self._fallback_cloud_chat, text, getattr(self.ui, "client_id", None)
+                    )
+                    if reply:
+                        append_chat_turn(client_id, "assistant", reply)
+                        self._messages.append({"role": "assistant", "content": reply})
+                except Exception:
+                    self.speak("Cannot reach Ollama, sir.")
                 break
 
             message = data.get("message") or {}
