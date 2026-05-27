@@ -1,5 +1,10 @@
 """Run Raaj-Jarvis as an installable PWA (mobile + desktop browsers)."""
 
+import os
+
+# Remote-only mode: never use Mac speakers or Mac mic — phone is the UI.
+os.environ.setdefault("JARVIS_PWA", "1")
+
 import uvicorn
 
 if __name__ == "__main__":

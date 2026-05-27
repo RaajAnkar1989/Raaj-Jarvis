@@ -394,7 +394,7 @@ class JarvisLocal:
 
     async def _run_tool(self, name: str, args: dict) -> str:
         self.ui.write_log(f"SYS: Running {name}…")
-        return await execute_tool(name, args, self.ui, self._tool_speak)
+        return await execute_tool(name, args, self.ui, self.speak)
 
     def _speak_streamed(self, content: str) -> None:
         """Speak sentence-by-sentence so the first words start quickly."""

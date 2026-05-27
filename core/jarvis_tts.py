@@ -121,6 +121,8 @@ async def _stream_to_file(text: str, out_path: str) -> None:
 
 
 def _play_file(path: str) -> None:
+    if _disable_local_playback:
+        return
     system = platform.system()
     if system == "Darwin":
         subprocess.run(["afplay", path], check=False)
@@ -143,6 +145,9 @@ def _play_file(path: str) -> None:
 
 
 def _fallback_say(text: str) -> None:
+    if _disable_local_playback:
+        print(f"[JARVIS] {text}")
+        return
     if platform.system() != "Darwin":
         print(f"[JARVIS] {text}")
         return
@@ -219,6 +224,8 @@ def _peek_next_queued() -> str | None:
 
 
 def _speak_blocking(text: str) -> None:
+    if _disable_local_playback:
+        return
     clean = jarvisify(text.strip())
     if not clean:
         return

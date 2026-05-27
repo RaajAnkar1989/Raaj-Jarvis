@@ -30,6 +30,8 @@ tunnel_mode() {
 }
 
 start_pwa() {
+  pkill -f "python main.py" 2>/dev/null || true
+  pkill -f "python ui.py" 2>/dev/null || true
   if is_running "$PWA_PID_FILE"; then
     return 0
   fi

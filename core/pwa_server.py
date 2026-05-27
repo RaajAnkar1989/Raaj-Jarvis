@@ -21,6 +21,9 @@ from fastapi.staticfiles import StaticFiles
 
 from core.jarvis_tts import synthesize_bytes, set_disable_local_playback, warmup_tts
 
+# Never play TTS through Mac speakers in PWA/remote mode.
+set_disable_local_playback(True)
+
 try:
     from actions.gmail_client import (
         APP_ORIGIN,
@@ -103,12 +106,13 @@ class PWAService:
     def _on_ui_event(self, event: dict) -> None:
         if not self._loop:
             return
-        if event.get("type") == "speech":
-            # Deliver to every connected client — phone may have multiple tabs/sockets.
-            asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
-            return
-        if event.get("type") == "speech_text":
-            asyncio.run_coroutine_threadsafe(self._broadcast(event), self._loop)
+        kind = event.get("type")
+        if kind in ("speech", "speech_text"):
+            # Only the phone/client that asked — never every open tab on the Mac.
+            target = event.get("client_id") or self.ui.client_id
+            asyncio.run_coroutine_threadsafe(
+                self._send_to_client(target, event), self._loop
+            )
             return
         if event.get("type") == "alarm":
             target = event.get("client_id") or self.ui.client_id
@@ -136,13 +140,7 @@ class PWAService:
             self._clients.discard(ws)
             self._ws_client_ids.pop(ws, None)
         if not sent:
-            # Fallback: single connected client (legacy)
-            if len(self._clients) == 1:
-                ws = next(iter(self._clients))
-                try:
-                    await ws.send_text(payload)
-                except Exception:
-                    pass
+            print(f"[PWA] speech not delivered — no WS for client {client_id[:8]}…")
 
     async def _broadcast(self, event: dict) -> None:
         dead: list[WebSocket] = []
@@ -162,6 +160,9 @@ class PWAService:
         self._loop = asyncio.get_event_loop()
         self.ui.bind_loop(self._loop)
         set_disable_local_playback(True)
+        from core.voice_input import set_pwa_remote_only
+
+        set_pwa_remote_only(True)
 
         def _on_agent_task(event: dict) -> None:
             if self._loop:

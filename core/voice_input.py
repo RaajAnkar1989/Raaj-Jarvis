@@ -22,6 +22,7 @@ _whisper_model_name: str | None = None
 _whisper_lock = threading.Lock()
 _mic_lock = threading.Lock()
 _listen_gate: Callable[[], bool] | None = None
+_pwa_remote_only = False
 SAMPLE_RATE = 16000
 
 
@@ -33,6 +34,19 @@ def set_listen_gate(fn: Callable[[], bool] | None) -> None:
     """Return True when the mic is allowed to capture (not during JARVIS speech)."""
     global _listen_gate
     _listen_gate = fn
+
+
+def set_pwa_remote_only(enabled: bool) -> None:
+    """When True, Mac microphone is disabled — phone sends voice instead."""
+    global _pwa_remote_only
+    _pwa_remote_only = enabled
+
+
+def _pwa_blocks_mic() -> bool:
+    if _pwa_remote_only:
+        return True
+    import os
+    return os.environ.get("JARVIS_PWA", "").strip() in ("1", "true", "yes")
 
 
 def _may_listen() -> bool:
@@ -178,6 +192,8 @@ def _strip_wake_words(text: str) -> str:
 
 
 def listen_once() -> tuple[str | None, str | None]:
+    if _pwa_blocks_mic():
+        return None, None
     if not _may_listen():
         return None, None
     if not _mic_lock.acquire(blocking=False):
