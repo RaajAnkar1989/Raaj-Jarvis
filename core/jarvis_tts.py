@@ -100,16 +100,41 @@ async def _synthesize_bytes(text: str) -> bytes:
     return b"".join(chunks)
 
 
-def synthesize_bytes(text: str) -> bytes | None:
+def _tts_engine() -> str:
+    return (_cfg().get("tts_engine") or "supertonic").lower()
+
+
+def synthesize_audio(text: str) -> tuple[bytes | None, str]:
+    """Return (audio_bytes, mime_type).
+
+    Supertonic (on-device ONNX, WAV) is tried first; edge-tts (MP3) is the
+    automatic fallback when Supertonic is not installed or fails.
+    """
     clean = jarvisify(text.strip())
     if not clean:
-        return None
+        return None, "audio/mpeg"
+
+    if _tts_engine() == "supertonic":
+        try:
+            from core.tts_supertonic import synthesize_wav_bytes
+
+            wav = synthesize_wav_bytes(clean)
+            if wav:
+                return wav, "audio/wav"
+        except Exception:
+            pass
+
     with _tts_lock:
         try:
             data = asyncio.run(_synthesize_bytes(clean))
-            return data if data else None
+            return (data, "audio/mpeg") if data else (None, "audio/mpeg")
         except Exception:
-            return None
+            return None, "audio/mpeg"
+
+
+def synthesize_bytes(text: str) -> bytes | None:
+    data, _mime = synthesize_audio(text)
+    return data
 
 
 async def _stream_to_file(text: str, out_path: str) -> None:
@@ -174,6 +199,18 @@ def _speech_end() -> None:
 
 
 def _synth_to_file(text: str) -> str:
+    if _tts_engine() == "supertonic":
+        try:
+            from core.tts_supertonic import synthesize_wav_bytes
+
+            wav = synthesize_wav_bytes(text)
+            if wav:
+                path = tempfile.mktemp(suffix=".wav")
+                with open(path, "wb") as f:
+                    f.write(wav)
+                return path
+        except Exception:
+            pass
     path = tempfile.mktemp(suffix=".mp3")
     with _tts_lock:
         asyncio.run(_stream_to_file(text, path))
@@ -294,6 +331,13 @@ def warmup_tts() -> None:
     if _warmed_up:
         return
     try:
+        if _tts_engine() == "supertonic":
+            from core.tts_supertonic import is_available, warmup
+
+            if is_available():
+                warmup()
+                _warmed_up = True
+                return
         path = tempfile.mktemp(suffix=".mp3")
         asyncio.run(_stream_to_file("Ready.", path))
         Path(path).unlink(missing_ok=True)

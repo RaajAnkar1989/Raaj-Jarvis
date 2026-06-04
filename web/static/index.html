@@ -183,7 +183,22 @@
           <span id="fallbackBadge" class="provider-badge provider-badge--cloud hidden">CLOUD</span>
         </div>
       </div>
-      <label class="field-label" for="settingsVoice">Voice</label>
+      <label class="field-label" for="settingsTtsEngine">TTS engine</label>
+      <select id="settingsTtsEngine">
+        <option value="supertonic">Supertonic (on-device, fastest)</option>
+        <option value="edge">Edge neural (cloud)</option>
+      </select>
+      <p class="modal-hint" id="ttsEngineHint">Supertonic runs locally on your Mac — no network, lowest latency. Edge is the cloud fallback.</p>
+      <label class="field-label" for="settingsSupertonicVoice">Supertonic voice</label>
+      <select id="settingsSupertonicVoice">
+        <option value="M1">M1 (male)</option>
+        <option value="M2">M2 (male)</option>
+        <option value="M3">M3 (male)</option>
+        <option value="F1">F1 (female)</option>
+        <option value="F2">F2 (female)</option>
+        <option value="F3">F3 (female)</option>
+      </select>
+      <label class="field-label" for="settingsVoice">Edge voice (fallback)</label>
       <select id="settingsVoice">
         <option value="en-US-AndrewMultilingualNeural">Andrew</option>
         <option value="en-US-JennyNeural">Jenny</option>

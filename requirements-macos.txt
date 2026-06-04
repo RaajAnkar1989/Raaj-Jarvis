@@ -19,6 +19,7 @@ pyqt6
 SpeechRecognition
 faster-whisper
 edge-tts
+supertonic
 fastapi
 uvicorn
 python-multipart

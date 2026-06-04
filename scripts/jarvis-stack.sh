@@ -86,6 +86,22 @@ start_tunnel() {
   fi
 }
 
+serve() {
+  # Foreground entrypoint for launchd (KeepAlive). Hands this process over to
+  # the PWA backend via exec so launchd supervises the real, long-lived python
+  # process directly — no fork loop. The HTTPS tunnel is supervised separately
+  # by the com.raaj.jarvis.tunnel agent.
+  pkill -f "python main.py" 2>/dev/null || true
+  pkill -f "python ui.py" 2>/dev/null || true
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti ":${PORT}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+  fi
+  source "$ROOT/.venv/bin/activate"
+  pip install -q fastapi uvicorn python-multipart 2>/dev/null || true
+  echo $$ > "$PWA_PID_FILE"
+  exec python "$ROOT/pwa_main.py" >>"$LOG_DIR/pwa.log" 2>&1
+}
+
 stop_all() {
   bash "$ROOT/scripts/free-tunnel.sh" stop 2>/dev/null || true
   for f in "$TUNNEL_PID_FILE" "$PWA_PID_FILE"; do
@@ -116,6 +132,9 @@ case "${1:-start}" in
     start_pwa
     start_tunnel || true
     status
+    ;;
+  serve)
+    serve
     ;;
   stop)
     stop_all

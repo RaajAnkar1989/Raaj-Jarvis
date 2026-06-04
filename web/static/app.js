@@ -54,6 +54,8 @@ const stateChip = $("#stateChip");
 const statusHint = $("#statusHint");
 const stopBtn = $("#stopBtn");
 const settingsVoice = $("#settingsVoice");
+const settingsTtsEngine = $("#settingsTtsEngine");
+const settingsSupertonicVoice = $("#settingsSupertonicVoice");
 const settingsPersonality = $("#settingsPersonality");
 const settingsSpeed = $("#settingsSpeed");
 const speedLabel = $("#speedLabel");
@@ -620,6 +622,8 @@ async function applySettingsToBackend() {
   const voice = settingsVoice?.value;
   const personality = settingsPersonality?.value;
   const speed = settingsSpeed?.value ?? 12;
+  const ttsEngine = settingsTtsEngine?.value || "supertonic";
+  const supertonicVoice = settingsSupertonicVoice?.value || "M1";
   await fetch(`${base}/api/settings`, {
     method: "POST",
     headers: apiHeaders({ "Content-Type": "application/json" }),
@@ -627,6 +631,8 @@ async function applySettingsToBackend() {
       voice,
       personality,
       tts_rate: speedToRate(speed),
+      tts_engine: ttsEngine,
+      supertonic_voice: supertonicVoice,
       owner: "Raaj",
     }),
   });
@@ -655,6 +661,8 @@ async function loadSettingsFromBackend() {
     if (res.ok) {
       const data = await res.json();
       if (settingsVoice && data.voice) settingsVoice.value = data.voice;
+      if (settingsTtsEngine && data.tts_engine) settingsTtsEngine.value = data.tts_engine;
+      if (settingsSupertonicVoice && data.supertonic_voice) settingsSupertonicVoice.value = data.supertonic_voice;
       if (settingsPersonality && data.personality) settingsPersonality.value = data.personality;
       if (data.tts_rate && settingsSpeed) {
         const m = String(data.tts_rate).match(/([+-]?\d+)/);
@@ -1251,7 +1259,7 @@ function speakBrowserFallback(text) {
   }
 }
 
-function playSpeech(base64Audio, text = "") {
+function playSpeech(base64Audio, text = "", format = "audio/mpeg") {
   if (!base64Audio) {
     fetchAndPlayTts(text).then((ok) => {
       if (!ok) speakBrowserFallback(text);
@@ -1262,7 +1270,7 @@ function playSpeech(base64Audio, text = "") {
     stopPlayback();
     unlockAudioOutput();
     const bytes = Uint8Array.from(atob(base64Audio), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "audio/mpeg" });
+    const blob = new Blob([bytes], { type: format || "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     currentAudio = audio;
@@ -1410,7 +1418,7 @@ async function connectWs() {
       return;
     }
     if (msg.type === "speech") {
-      playSpeech(msg.audio, msg.text);
+      playSpeech(msg.audio, msg.text, msg.format);
     }
     if (msg.type === "agent_task") {
       refreshTasksPanel();

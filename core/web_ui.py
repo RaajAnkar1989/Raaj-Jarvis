@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from core.jarvis_tts import synthesize_bytes
+from core.jarvis_tts import synthesize_audio
 
 
 class WebUIAdapter:
@@ -121,10 +121,10 @@ class WebUIAdapter:
         def _run() -> None:
             if epoch != self._speech_epoch:
                 return
-            audio = synthesize_bytes(text)
+            audio, mime = synthesize_audio(text)
             if epoch != self._speech_epoch:
                 return
-            event: dict = {"type": "speech", "text": text}
+            event: dict = {"type": "speech", "text": text, "format": mime}
             if target_client:
                 event["client_id"] = target_client
             if audio:
@@ -141,10 +141,10 @@ class WebUIAdapter:
         if epoch != self._speech_epoch:
             return
         self._broadcast({"type": "speech_text", "text": text, "client_id": self.client_id})
-        audio = synthesize_bytes(text)
+        audio, mime = synthesize_audio(text)
         if epoch != self._speech_epoch:
             return
-        event: dict = {"type": "speech", "text": text}
+        event: dict = {"type": "speech", "text": text, "format": mime}
         if self.client_id:
             event["client_id"] = self.client_id
         event["audio"] = base64.b64encode(audio).decode("ascii") if audio else None

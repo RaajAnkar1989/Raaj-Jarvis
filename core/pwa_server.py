@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from core.jarvis_tts import synthesize_bytes, set_disable_local_playback, warmup_tts
+from core.jarvis_tts import synthesize_audio, set_disable_local_playback, warmup_tts
 
 # Never play TTS through Mac speakers in PWA/remote mode.
 set_disable_local_playback(True)
@@ -408,6 +408,8 @@ async def get_settings():
         "voice": cfg.get("tts_voice", "en-US-AndrewMultilingualNeural"),
         "personality": cfg.get("assistant_personality", "professional"),
         "tts_rate": cfg.get("tts_rate", "+8%"),
+        "tts_engine": cfg.get("tts_engine", "supertonic"),
+        "supertonic_voice": cfg.get("supertonic_voice", "M1"),
         "owner": cfg.get("owner_name", "Raaj"),
         "gmail_configured": gmail_configured(),
         "gmail": gmail_status(),
@@ -485,6 +487,12 @@ async def post_settings(payload: dict):
         data["assistant_personality"] = str(payload["personality"]).strip()
     if payload.get("tts_rate") is not None:
         data["tts_rate"] = str(payload["tts_rate"]).strip()
+    if payload.get("tts_engine"):
+        engine = str(payload["tts_engine"]).strip().lower()
+        if engine in ("supertonic", "edge"):
+            data["tts_engine"] = engine
+    if payload.get("supertonic_voice"):
+        data["supertonic_voice"] = str(payload["supertonic_voice"]).strip()
     if payload.get("owner"):
         data["owner_name"] = str(payload["owner"]).strip()
     if data:
@@ -672,12 +680,12 @@ async def tts(payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         return JSONResponse({"error": "empty text"}, status_code=400)
-    audio = await asyncio.to_thread(synthesize_bytes, text)
+    audio, mime = await asyncio.to_thread(synthesize_audio, text)
     if not audio:
         return JSONResponse({"error": "tts failed"}, status_code=500)
     from fastapi.responses import Response
 
-    return Response(content=audio, media_type="audio/mpeg")
+    return Response(content=audio, media_type=mime)
 
 
 @app.websocket("/ws")
