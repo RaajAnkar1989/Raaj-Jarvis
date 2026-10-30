@@ -1,2 +1,2 @@
 # Proxy API through Netlify — OAuth + REST (WebSocket still uses tunnel discovery)
-/api/*  https://hourly-schedules-boating-submissions.trycloudflare.com/api/:splat  200
+/api/*  https://klein-alexander-cable-contributor.trycloudflare.com/api/:splat  200
